@@ -1,0 +1,14 @@
+# MongoDB Configuration
+MONGODB_URI=mongodb://localhost:27017/
+MONGODB_DATABASE=personalmem
+
+# Mem0 Configuration (choose your LLM provider)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Or use other providers supported by mem0:
+# ANTHROPIC_API_KEY=your_anthropic_key
+# GROQ_API_KEY=your_groq_key
+
+# Application Settings
+LOG_LEVEL=INFO
+

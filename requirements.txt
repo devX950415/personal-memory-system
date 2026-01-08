@@ -1,0 +1,16 @@
+# Core dependencies
+mem0ai==0.1.17
+pymongo==4.6.1
+python-dotenv==1.0.0
+
+# API framework
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.5.3
+
+# Utilities
+python-dateutil==2.8.2
+
+# Optional: for OpenAI embeddings (mem0 supports multiple providers)
+openai==1.10.0
+
