@@ -24,6 +24,15 @@ class MemoryService:
     
     def __init__(self):
         """Initialize mem0 with Azure OpenAI or regular OpenAI backend"""
+        # Determine embedding dimensions based on model
+        # text-embedding-3-large = 3072, text-embedding-3-small = 1536, text-embedding-ada-002 = 1536
+        embedding_dims = 1536  # default
+        if config.is_azure_openai() and config.AZURE_OPENAI_EMBEDDING_MODEL:
+            if "large" in config.AZURE_OPENAI_EMBEDDING_MODEL.lower():
+                embedding_dims = 3072
+            elif "small" in config.AZURE_OPENAI_EMBEDDING_MODEL.lower():
+                embedding_dims = 1536
+        
         # Base configuration for vector store
         mem0_config = {
             "vector_store": {
@@ -31,6 +40,7 @@ class MemoryService:
                 "config": {
                     "collection_name": "user_memories",
                     "path": "./qdrant_db",  # Local storage
+                    "embedding_model_dims": embedding_dims,  # Set correct dimensions
                 }
             }
         }
@@ -43,21 +53,25 @@ class MemoryService:
                 "provider": "azure_openai",
                 "config": {
                     "model": config.AZURE_OPENAI_MODEL,
-                    "azure_deployment": config.AZURE_OPENAI_DEPLOYMENT,
-                    "azure_endpoint": config.AZURE_OPENAI_ENDPOINT,
-                    "api_key": config.AZURE_OPENAI_API_KEY,
-                    "api_version": config.AZURE_OPENAI_API_VERSION,
                     "temperature": 0.1,
+                    "azure_kwargs": {
+                        "api_key": config.AZURE_OPENAI_API_KEY,
+                        "azure_deployment": config.AZURE_OPENAI_DEPLOYMENT,
+                        "azure_endpoint": config.AZURE_OPENAI_ENDPOINT,
+                        "api_version": config.AZURE_OPENAI_API_VERSION,
+                    }
                 }
             }
             mem0_config["embedder"] = {
                 "provider": "azure_openai",
                 "config": {
                     "model": config.AZURE_OPENAI_EMBEDDING_MODEL,
-                    "azure_deployment": config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
-                    "azure_endpoint": config.AZURE_OPENAI_EMBEDDING_ENDPOINT,
-                    "api_key": config.AZURE_OPENAI_EMBEDDING_API_KEY,
-                    "api_version": config.AZURE_OPENAI_EMBEDDING_API_VERSION,
+                    "azure_kwargs": {
+                        "api_key": config.AZURE_OPENAI_EMBEDDING_API_KEY,
+                        "azure_deployment": config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+                        "azure_endpoint": config.AZURE_OPENAI_EMBEDDING_ENDPOINT,
+                        "api_version": config.AZURE_OPENAI_EMBEDDING_API_VERSION,
+                    }
                 }
             }
         else:
@@ -80,7 +94,116 @@ class MemoryService:
             }
         
         self.memory = Memory.from_config(mem0_config)
+        
+        # Patch Azure OpenAI LLM for newer models that require max_completion_tokens
+        if config.is_azure_openai():
+            self._patch_azure_openai_for_newer_models()
+        
+        # Patch Qdrant vector store for newer qdrant-client API
+        self._patch_qdrant_for_newer_api()
+        
         logger.info("MemoryService initialized with mem0")
+    
+    def _patch_azure_openai_for_newer_models(self):
+        """
+        Patch mem0's Azure OpenAI LLM to use max_completion_tokens instead of max_tokens
+        for newer Azure models like gpt-5.1 that don't support max_tokens.
+        """
+        try:
+            from mem0.llms.azure_openai import AzureOpenAILLM
+            
+            # Store original method
+            original_generate = AzureOpenAILLM.generate_response
+            
+            def patched_generate_response(self, messages, response_format=None, tools=None, tool_choice="auto"):
+                """Patched version that uses max_completion_tokens for newer models"""
+                params = {
+                    "model": self.config.model,
+                    "messages": messages,
+                    "temperature": self.config.temperature,
+                    "top_p": self.config.top_p,
+                }
+                
+                # Check if model requires max_completion_tokens (newer Azure models)
+                # Models like gpt-5.1, o1, etc. require max_completion_tokens
+                model_name = (self.config.model or "").lower()
+                if any(new_model in model_name for new_model in ["gpt-5", "o1", "o3"]):
+                    # Use max_completion_tokens for newer models
+                    params["max_completion_tokens"] = self.config.max_tokens
+                else:
+                    # Use max_tokens for older models
+                    params["max_tokens"] = self.config.max_tokens
+                
+                if response_format:
+                    params["response_format"] = response_format
+                if tools:
+                    params["tools"] = tools
+                    params["tool_choice"] = tool_choice
+                
+                response = self.client.chat.completions.create(**params)
+                return self._parse_response(response, tools)
+            
+            # Patch the class method
+            AzureOpenAILLM.generate_response = patched_generate_response
+            logger.info("Patched Azure OpenAI LLM to support max_completion_tokens for newer models")
+            
+        except Exception as e:
+            logger.warning(f"Could not patch Azure OpenAI LLM: {e}. Some newer models may not work correctly.")
+    
+    def _patch_qdrant_for_newer_api(self):
+        """
+        Patch mem0's Qdrant vector store to use query_points() instead of search()
+        for newer qdrant-client versions (1.16+).
+        """
+        try:
+            from mem0.vector_stores.qdrant import Qdrant
+            from qdrant_client.http.models.models import NearestQuery
+            
+            # Store original search method
+            original_search = Qdrant.search
+            
+            def patched_search(self, query: list, limit: int = 5, filters: dict = None) -> list:
+                """Patched version that uses query_points() for newer qdrant-client"""
+                try:
+                    # Check if client has the old search method
+                    if hasattr(self.client, 'search'):
+                        # Use old API
+                        return original_search(self, query, limit, filters)
+                    elif hasattr(self.client, 'query_points'):
+                        # Use new API (qdrant-client 1.16+)
+                        query_filter = self._create_filter(filters) if filters else None
+                        
+                        # Create NearestQuery - nearest should be the vector list directly
+                        nearest_query = NearestQuery(nearest=query)
+                        
+                        response = self.client.query_points(
+                            collection_name=self.collection_name,
+                            query=nearest_query,
+                            query_filter=query_filter,
+                            limit=limit,
+                            with_payload=True,
+                            with_vectors=False
+                        )
+                        
+                        # Return ScoredPoint objects directly (matching old search() format)
+                        # mem0 expects objects with .id, .payload, and .score attributes
+                        return response.points
+                    else:
+                        # Fall back to original
+                        return original_search(self, query, limit, filters)
+                except Exception as e:
+                    logger.warning(f"Error in patched Qdrant search: {e}, falling back to original")
+                    try:
+                        return original_search(self, query, limit, filters)
+                    except:
+                        return []
+            
+            # Patch the method
+            Qdrant.search = patched_search
+            logger.info("Patched Qdrant vector store to support newer qdrant-client API")
+            
+        except Exception as e:
+            logger.warning(f"Could not patch Qdrant vector store: {e}. Search may not work correctly.")
     
     def add_memory_from_message(
         self, 
