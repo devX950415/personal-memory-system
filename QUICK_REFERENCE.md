@@ -96,8 +96,8 @@ docker-compose up -d
 
 ## API Endpoints (when running API)
 
-- **Health:** http://localhost:8000/health
-- **Docs:** http://localhost:8000/docs
+- **Health:** http://localhost:8888/health
+- **Docs:** http://localhost:8888/docs
 - **Create Chat:** POST /chats
 - **Send Message:** POST /chats/messages
 - **Get Memories:** GET /users/{user_id}/memories

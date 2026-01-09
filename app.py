@@ -48,15 +48,14 @@ class PersonalMemApp:
         self, 
         user_id: str, 
         chat_id: str, 
-        message: str,
-        extract_memory: bool = True
+        message: str
     ) -> Dict[str, Any]:
         """
         Process a user message within a chat.
         
         Steps:
         1. Add user message to chat history
-        2. Extract and store personal memories (if enabled)
+        2. Automatically analyze and extract personal memories (LLM decides)
         3. Retrieve relevant personal memories
         4. Generate context for AI response
         
@@ -64,7 +63,6 @@ class PersonalMemApp:
             user_id: User ID
             chat_id: Chat ID
             message: User's message
-            extract_memory: Whether to extract memories from this message
             
         Returns:
             Dictionary with context and extracted memories
@@ -72,14 +70,14 @@ class PersonalMemApp:
         # Step 1: Add message to chat history
         self.chat_service.add_message(chat_id, MessageRole.USER, message)
         
-        # Step 2: Extract memories if enabled
-        extracted_memories = []
-        if extract_memory:
-            extracted_memories = self.memory_service.add_memory_from_message(
-                user_id=user_id,
-                message=message,
-                metadata={"chat_id": chat_id}
-            )
+        # Step 2: Automatically extract memories (LLM analyzes if message contains personal info)
+        # mem0's LLM will decide if the message contains long-term personal information
+        # If yes, it extracts and stores it; if no, it returns an empty list
+        extracted_memories = self.memory_service.add_memory_from_message(
+            user_id=user_id,
+            message=message,
+            metadata={"chat_id": chat_id}
+        )
         
         # Step 3: Get relevant memories for context
         memory_context = self.memory_service.get_memory_context(user_id, message)
@@ -269,8 +267,8 @@ def demo():
     result = app.process_user_message(
         user_id=user_id,
         chat_id=chat_b_id,
-        message="What is my name?",
-        extract_memory=False  # Just asking, not sharing new info
+        message="What is my name?"
+        # Note: Memory extraction is automatic - LLM will detect no personal info here
     )
     
     print("\nMemory context available for response:")
@@ -291,10 +289,10 @@ def demo():
     result = app.process_user_message(
         user_id=user_id,
         chat_id=chat_c_id,
-        message="I need help debugging this function: def add(a, b): return a - b",
-        extract_memory=True  # mem0 should filter this out automatically
+        message="I need help debugging this function: def add(a, b): return a - b"
+        # Note: Memory extraction is automatic - LLM will detect this is task-specific, not personal info
     )
-    print(f"Extracted memories (should be 0 or minimal): {len(result['extracted_memories'])}")
+    print(f"Extracted memories (should be 0 - no personal info): {len(result['extracted_memories'])}")
     
     # === Show all memories ===
     print("\n--- All Personal Memories for User ---")

@@ -176,10 +176,10 @@ python api.py
 Or using uvicorn directly:
 
 ```bash
-uvicorn api:app_api --reload --host 0.0.0.0 --port 8000
+uvicorn api:app_api --reload --host 0.0.0.0 --port 8888
 ```
 
-Visit the interactive API docs at: **http://localhost:8000/docs**
+Visit the interactive API docs at: **http://localhost:8888/docs**
 
 ---
 
@@ -210,7 +210,7 @@ Visit the interactive API docs at: **http://localhost:8000/docs**
 **1. Create a Chat**
 
 ```bash
-curl -X POST "http://localhost:8000/chats" \
+curl -X POST "http://localhost:8888/chats" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user_123",
@@ -221,31 +221,41 @@ curl -X POST "http://localhost:8000/chats" \
 **2. Send a Message**
 
 ```bash
-curl -X POST "http://localhost:8000/chats/messages" \
+curl -X POST "http://localhost:8888/chats/messages" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user_123",
     "chat_id": "chat_abc",
-    "message": "My name is Honda and I love Python.",
-    "extract_memory": true
+    "message": "My name is Honda and I love Python."
   }'
 ```
+
+> **Note:** Memory extraction is **automatic**! The LLM analyzes every message to detect long-term personal information. No manual flag needed.
 
 **3. Get User Memories**
 
 ```bash
-curl -X GET "http://localhost:8000/users/user_123/memories"
+curl -X GET "http://localhost:8888/users/user_123/memories"
 ```
 
 **4. Get Context for Response**
 
 ```bash
-curl -X GET "http://localhost:8000/users/user_123/context/chat_abc"
+curl -X GET "http://localhost:8888/users/user_123/context/chat_abc"
 ```
 
 ---
 
 ## 🧠 How Memory Extraction Works
+
+### ⚡ Automatic Extraction
+
+**Every message is automatically analyzed by the LLM** to determine if it contains long-term personal information. There is **no manual flag** or checkbox needed - the AI decides what's worth remembering.
+
+- ✅ **Automatic**: LLM analyzes every message
+- ✅ **Intelligent**: Only extracts meaningful personal information
+- ✅ **Seamless**: Works in the background without user intervention
+- ✅ **Smart**: Doesn't store temporary or task-specific content
 
 ### What Gets Stored
 
@@ -428,14 +438,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["uvicorn", "api:app_api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api:app_api", "--host", "0.0.0.0", "--port", "8888"]
 ```
 
 Build and run:
 
 ```bash
 docker build -t personalmem .
-docker run -p 8000:8000 --env-file .env personalmem
+docker run -p 8888:8888 --env-file .env personalmem
 ```
 
 ---

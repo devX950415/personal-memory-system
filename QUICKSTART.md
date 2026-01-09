@@ -71,14 +71,14 @@ source venv/bin/activate
 python api.py
 ```
 
-Visit http://localhost:8000/docs for interactive API documentation.
+Visit http://localhost:8888/docs for interactive API documentation.
 
 ## First API Call
 
 Try creating a chat:
 
 ```bash
-curl -X POST "http://localhost:8000/chats" \
+curl -X POST "http://localhost:8888/chats" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "alice",
@@ -89,7 +89,7 @@ curl -X POST "http://localhost:8000/chats" \
 Send a message with personal info:
 
 ```bash
-curl -X POST "http://localhost:8000/chats/messages" \
+curl -X POST "http://localhost:8888/chats/messages" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "alice",
@@ -102,13 +102,13 @@ curl -X POST "http://localhost:8000/chats/messages" \
 Check stored memories:
 
 ```bash
-curl "http://localhost:8000/users/alice/memories"
+curl "http://localhost:8888/users/alice/memories"
 ```
 
 ## What's Next?
 
 1. Read the full [README.md](README.md) for detailed documentation
-2. Explore the API at http://localhost:8000/docs
+2. Explore the API at http://localhost:8888/docs
 3. Check the MongoDB UI at http://localhost:8081
 4. Look at the code examples in `app.py`
 

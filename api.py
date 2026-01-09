@@ -3,9 +3,12 @@ FastAPI REST API for PersonalMem System
 """
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+import os
 
 from app import PersonalMemApp
 from config import config
@@ -48,7 +51,7 @@ class SendMessageRequest(BaseModel):
     user_id: str = Field(..., description="User ID")
     chat_id: str = Field(..., description="Chat ID")
     message: str = Field(..., description="User message")
-    extract_memory: bool = Field(True, description="Whether to extract memories")
+    # Note: Memory extraction is now automatic - LLM analyzes every message
 
 
 class SendMessageResponse(BaseModel):
@@ -155,13 +158,17 @@ async def get_chat_messages(chat_id: str):
 
 @app_api.post("/chats/messages", response_model=SendMessageResponse)
 async def send_message(request: SendMessageRequest):
-    """Send a user message and process it"""
+    """
+    Send a user message and process it.
+    
+    Memory extraction is automatic - the LLM analyzes every message to determine
+    if it contains long-term personal information (name, preferences, etc).
+    """
     try:
         result = personal_mem_app.process_user_message(
             user_id=request.user_id,
             chat_id=request.chat_id,
-            message=request.message,
-            extract_memory=request.extract_memory
+            message=request.message
         )
         
         return SendMessageResponse(
@@ -321,6 +328,31 @@ async def health_check():
     }
 
 
+# ==================== Frontend Serving ====================
+
+# Serve frontend static files
+frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
+if os.path.exists(frontend_path):
+    # Serve CSS and JS files
+    app_api.mount("/static", StaticFiles(directory=frontend_path), name="static")
+    
+    @app_api.get("/")
+    async def serve_frontend():
+        """Serve the frontend interface"""
+        index_path = os.path.join(frontend_path, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"message": "Frontend not found. Please check frontend/index.html exists."}
+    
+    @app_api.get("/frontend/{file_path:path}")
+    async def serve_frontend_file(file_path: str):
+        """Serve frontend files (CSS, JS)"""
+        file_full_path = os.path.join(frontend_path, file_path)
+        if os.path.exists(file_full_path) and os.path.isfile(file_full_path):
+            return FileResponse(file_full_path)
+        raise HTTPException(status_code=404, detail="File not found")
+
+
 # ==================== Run Server ====================
 
 if __name__ == "__main__":
@@ -331,7 +363,7 @@ if __name__ == "__main__":
         uvicorn.run(
             "api:app_api",
             host="0.0.0.0",
-            port=8000,
+            port=8888,
             reload=True,
             log_level=config.LOG_LEVEL.lower()
         )

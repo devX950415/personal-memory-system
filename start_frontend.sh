@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Start PersonalMem API Server
+# Start PersonalMem API with Frontend
 
 echo "================================"
-echo "Starting PersonalMem API"
+echo "Starting PersonalMem API + Frontend"
 echo "================================"
 echo ""
 
@@ -12,8 +12,7 @@ if [ ! -f .env ]; then
     echo "❌ .env file not found!"
     echo ""
     echo "Please create a .env file with your configuration:"
-    echo "  cp env_example.txt .env"
-    echo "  nano .env"
+    echo "  See env_example.txt"
     echo ""
     exit 1
 fi
@@ -40,12 +39,18 @@ else
     echo ""
     echo "Start MongoDB with: docker-compose up -d"
     echo ""
-    echo "Continuing anyway (server will fail if MongoDB is not available)..."
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
 fi
 
 echo ""
 echo "🚀 Starting API server..."
+echo ""
 echo "📍 API will be available at: http://localhost:8888"
+echo "🌐 Frontend will be available at: http://localhost:8888/"
 echo "📚 API docs at: http://localhost:8888/docs"
 echo ""
 echo "Press Ctrl+C to stop the server"

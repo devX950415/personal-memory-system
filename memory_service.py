@@ -35,6 +35,7 @@ class MemoryService:
         
         # Base configuration for vector store
         mem0_config = {
+            "version": "v1.1",  # Use v1.1 API to get proper return format with memories
             "vector_store": {
                 "provider": "qdrant",
                 "config": {
@@ -227,11 +228,32 @@ class MemoryService:
         """
         try:
             # Mem0 will analyze the message and extract only meaningful memories
-            memories = self.memory.add(
+            result = self.memory.add(
                 messages=message,
                 user_id=user_id,
                 metadata=metadata or {}
             )
+            
+            # Handle return format from mem0
+            # v1.1 format: {"results": [memories], "relations": [...]}
+            # Old format: {"message": "ok"} (shouldn't happen with v1.1 but handle it)
+            if isinstance(result, dict):
+                if "results" in result:
+                    # v1.1 format - extract the results list
+                    memories = result.get("results", [])
+                elif "message" in result:
+                    # Old format fallback
+                    logger.warning("mem0 returned old format. Memories were extracted but format is deprecated.")
+                    memories = []
+                else:
+                    logger.warning(f"Unexpected mem0.add() return format: {result}")
+                    memories = []
+            elif isinstance(result, list):
+                # Direct list return (shouldn't happen but handle it)
+                memories = result
+            else:
+                logger.warning(f"Unexpected mem0.add() return type: {type(result)}")
+                memories = []
             
             logger.info(f"Extracted {len(memories)} memories for user {user_id}")
             return memories
@@ -257,11 +279,27 @@ class MemoryService:
             List of extracted memories
         """
         try:
-            memories = self.memory.add(
+            result = self.memory.add(
                 messages=messages,
                 user_id=user_id,
                 metadata=metadata or {}
             )
+            
+            # Handle return format from mem0 (same as add_memory_from_message)
+            if isinstance(result, dict):
+                if "results" in result:
+                    memories = result.get("results", [])
+                elif "message" in result:
+                    logger.warning("mem0 returned old format. Memories were extracted but format is deprecated.")
+                    memories = []
+                else:
+                    logger.warning(f"Unexpected mem0.add() return format: {result}")
+                    memories = []
+            elif isinstance(result, list):
+                memories = result
+            else:
+                logger.warning(f"Unexpected mem0.add() return type: {type(result)}")
+                memories = []
             
             logger.info(f"Extracted {len(memories)} memories from conversation for user {user_id}")
             return memories
@@ -280,7 +318,18 @@ class MemoryService:
             List of all user memories
         """
         try:
-            memories = self.memory.get_all(user_id=user_id)
+            result = self.memory.get_all(user_id=user_id)
+            
+            # Handle v1.1 format: {"results": [memories], "relations": [...]}
+            if isinstance(result, dict) and "results" in result:
+                memories = result.get("results", [])
+            elif isinstance(result, list):
+                # Old format (shouldn't happen with v1.1 but handle it)
+                memories = result
+            else:
+                logger.warning(f"Unexpected mem0.get_all() return format: {type(result)}")
+                memories = []
+            
             logger.info(f"Retrieved {len(memories)} memories for user {user_id}")
             return memories
         except Exception as e:
@@ -305,11 +354,22 @@ class MemoryService:
             List of relevant memories
         """
         try:
-            memories = self.memory.search(
+            result = self.memory.search(
                 query=query,
                 user_id=user_id,
                 limit=limit
             )
+            
+            # Handle v1.1 format: {"results": [memories], "relations": [...]}
+            if isinstance(result, dict) and "results" in result:
+                memories = result.get("results", [])
+            elif isinstance(result, list):
+                # Old format (shouldn't happen with v1.1 but handle it)
+                memories = result
+            else:
+                logger.warning(f"Unexpected mem0.search() return format: {type(result)}")
+                memories = []
+            
             logger.info(f"Found {len(memories)} memories for query: {query}")
             return memories
         except Exception as e:
@@ -395,7 +455,15 @@ class MemoryService:
         # Format memories as context
         context_parts = ["User Personal Information (from previous conversations):"]
         for mem in relevant_memories:
-            context_parts.append(f"- {mem.get('memory', '')}")
+            # Handle both dict and string formats
+            if isinstance(mem, dict):
+                memory_text = mem.get('memory', '')
+            elif isinstance(mem, str):
+                memory_text = mem
+            else:
+                memory_text = str(mem)
+            if memory_text:
+                context_parts.append(f"- {memory_text}")
         
         return "\n".join(context_parts)
 
