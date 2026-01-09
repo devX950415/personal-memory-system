@@ -23,7 +23,8 @@ class MemoryService:
     """
     
     def __init__(self):
-        """Initialize mem0 with MongoDB backend"""
+        """Initialize mem0 with Azure OpenAI or regular OpenAI backend"""
+        # Base configuration for vector store
         mem0_config = {
             "vector_store": {
                 "provider": "qdrant",
@@ -31,23 +32,52 @@ class MemoryService:
                     "collection_name": "user_memories",
                     "path": "./qdrant_db",  # Local storage
                 }
-            },
-            "llm": {
+            }
+        }
+        
+        # Configure LLM and Embedder based on provider
+        if config.is_azure_openai():
+            # Use Azure OpenAI
+            logger.info("Configuring mem0 with Azure OpenAI")
+            mem0_config["llm"] = {
+                "provider": "azure_openai",
+                "config": {
+                    "model": config.AZURE_OPENAI_MODEL,
+                    "azure_deployment": config.AZURE_OPENAI_DEPLOYMENT,
+                    "azure_endpoint": config.AZURE_OPENAI_ENDPOINT,
+                    "api_key": config.AZURE_OPENAI_API_KEY,
+                    "api_version": config.AZURE_OPENAI_API_VERSION,
+                    "temperature": 0.1,
+                }
+            }
+            mem0_config["embedder"] = {
+                "provider": "azure_openai",
+                "config": {
+                    "model": config.AZURE_OPENAI_EMBEDDING_MODEL,
+                    "azure_deployment": config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+                    "azure_endpoint": config.AZURE_OPENAI_EMBEDDING_ENDPOINT,
+                    "api_key": config.AZURE_OPENAI_EMBEDDING_API_KEY,
+                    "api_version": config.AZURE_OPENAI_EMBEDDING_API_VERSION,
+                }
+            }
+        else:
+            # Use regular OpenAI
+            logger.info("Configuring mem0 with OpenAI")
+            mem0_config["llm"] = {
                 "provider": "openai",
                 "config": {
                     "model": "gpt-4o-mini",
                     "temperature": 0.1,
                     "api_key": config.OPENAI_API_KEY
                 }
-            },
-            "embedder": {
+            }
+            mem0_config["embedder"] = {
                 "provider": "openai",
                 "config": {
                     "model": "text-embedding-3-small",
                     "api_key": config.OPENAI_API_KEY
                 }
             }
-        }
         
         self.memory = Memory.from_config(mem0_config)
         logger.info("MemoryService initialized with mem0")

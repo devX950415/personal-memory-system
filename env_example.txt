@@ -2,12 +2,26 @@
 MONGODB_URI=mongodb://localhost:27017/
 MONGODB_DATABASE=personalmem
 
-# Mem0 Configuration (choose your LLM provider)
-OPENAI_API_KEY=your_openai_api_key_here
+# ========================================
+# Option 1: Azure OpenAI (Recommended for Enterprise)
+# ========================================
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_MODEL=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
 
-# Or use other providers supported by mem0:
-# ANTHROPIC_API_KEY=your_anthropic_key
-# GROQ_API_KEY=your_groq_key
+# Azure OpenAI Embeddings
+AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+AZURE_OPENAI_EMBEDDING_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_EMBEDDING_API_VERSION=2024-12-01-preview
+AZURE_OPENAI_EMBEDDING_API_KEY=your_azure_embedding_api_key
+
+# ========================================
+# Option 2: Regular OpenAI (Alternative)
+# ========================================
+# OPENAI_API_KEY=sk-your-openai-api-key-here
 
 # Application Settings
 LOG_LEVEL=INFO
