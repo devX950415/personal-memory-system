@@ -1,296 +1,20 @@
-// Configuration
-let API_URL = 'http://localhost:8888';
+// PersonalMem Frontend - Memory Only Version
+
+const API_URL = 'http://localhost:8888';
 let USER_ID = 'test_user';
-let CURRENT_CHAT_ID = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    loadConfig();
+    USER_ID = document.getElementById('userId').value;
     testConnection();
 });
 
-function loadConfig() {
-    const apiUrl = localStorage.getItem('apiUrl') || 'http://localhost:8888';
-    const userId = localStorage.getItem('userId') || 'test_user';
-    
-    document.getElementById('apiUrl').value = apiUrl;
-    document.getElementById('userId').value = userId;
-    
-    API_URL = apiUrl;
-    USER_ID = userId;
+function getApiUrl() {
+    return document.getElementById('apiUrl').value || API_URL;
 }
 
-function saveConfig() {
-    API_URL = document.getElementById('apiUrl').value;
-    USER_ID = document.getElementById('userId').value;
-    
-    localStorage.setItem('apiUrl', API_URL);
-    localStorage.setItem('userId', USER_ID);
-}
-
-async function testConnection() {
-    saveConfig();
-    showStatus('Testing connection...', 'info');
-    
-    try {
-        const response = await fetch(`${API_URL}/health`);
-        const data = await response.json();
-        
-        if (response.ok) {
-            showStatus('✅ Connected to API successfully!', 'success');
-        } else {
-            showStatus('❌ API returned an error', 'error');
-        }
-    } catch (error) {
-        showStatus(`❌ Connection failed: ${error.message}`, 'error');
-    }
-}
-
-async function createChat() {
-    saveConfig();
-    const title = document.getElementById('chatTitle').value || 'New Chat';
-    showStatus('Creating chat...', 'info');
-    
-    try {
-        const response = await fetch(`${API_URL}/chats`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                user_id: USER_ID,
-                title: title
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-        }
-        
-        const data = await response.json();
-        CURRENT_CHAT_ID = data.chat_id;
-        
-        document.getElementById('currentChatInfo').innerHTML = `
-            <strong>Current Chat:</strong> ${data.title}<br>
-            <small>Chat ID: ${data.chat_id}</small>
-        `;
-        
-        clearChatMessages();
-        addSystemMessage(`Chat "${data.title}" created!`);
-        showStatus('✅ Chat created successfully!', 'success');
-        loadUserChats();
-    } catch (error) {
-        showStatus(`❌ Failed to create chat: ${error.message}`, 'error');
-    }
-}
-
-async function loadUserChats() {
-    saveConfig();
-    
-    try {
-        const response = await fetch(`${API_URL}/users/${USER_ID}/chats`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const chats = await response.json();
-        
-        if (chats.length > 0) {
-            const chatInfo = document.getElementById('currentChatInfo');
-            const chatList = chats.slice(0, 5).map(chat => 
-                `<div style="margin: 5px 0; padding: 8px; background: #f0f0f0; border-radius: 4px; cursor: pointer;" 
-                      onclick="selectChat('${chat.chat_id}', '${chat.title}')">
-                    <strong>${chat.title}</strong> (${chat.message_count} messages)
-                </div>`
-            ).join('');
-            
-            chatInfo.innerHTML = `
-                <strong>Your Chats:</strong><br>
-                ${chatList}
-            `;
-        }
-    } catch (error) {
-        console.error('Error loading chats:', error);
-    }
-}
-
-function selectChat(chatId, title) {
-    CURRENT_CHAT_ID = chatId;
-    document.getElementById('currentChatInfo').innerHTML = `
-        <strong>Current Chat:</strong> ${title}<br>
-        <small>Chat ID: ${chatId}</small>
-    `;
-    loadChatMessages(chatId);
-    showStatus(`✅ Selected chat: ${title}`, 'success');
-}
-
-async function loadChatMessages(chatId) {
-    try {
-        const response = await fetch(`${API_URL}/chats/${chatId}/messages`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const messages = await response.json();
-        clearChatMessages();
-        
-        if (messages.length === 0) {
-            addSystemMessage('No messages in this chat yet.');
-        } else {
-            messages.forEach(msg => {
-                addMessage(msg.role, msg.content);
-            });
-        }
-    } catch (error) {
-        showStatus(`❌ Failed to load messages: ${error.message}`, 'error');
-    }
-}
-
-async function sendMessage() {
-    if (!CURRENT_CHAT_ID) {
-        showStatus('❌ Please create or select a chat first', 'error');
-        return;
-    }
-    
-    const messageInput = document.getElementById('messageInput');
-    const message = messageInput.value.trim();
-    
-    if (!message) {
-        return;
-    }
-    
-    // Add user message to UI
-    addMessage('user', message);
-    messageInput.value = '';
-    showStatus('Sending message (auto-analyzing for personal info)...', 'info');
-    
-    try {
-        // Send message (memory extraction is automatic on backend)
-        const response = await fetch(`${API_URL}/chats/messages`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                user_id: USER_ID,
-                chat_id: CURRENT_CHAT_ID,
-                message: message
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-        }
-        
-        const data = await response.json();
-        
-        // Show extracted memories info
-        if (data.extracted_memories && data.extracted_memories.length > 0) {
-            showStatus(`✅ Message sent! Auto-extracted ${data.extracted_memories.length} personal memories`, 'success');
-            loadMemories(); // Refresh memories
-        } else {
-            showStatus('✅ Message sent! (No personal info detected)', 'success');
-        }
-        
-        // Simulate assistant response (you can replace this with actual API call)
-        setTimeout(() => {
-            addMessage('assistant', 'Message received and processed. Personal information automatically extracted if present.');
-        }, 500);
-        
-    } catch (error) {
-        showStatus(`❌ Failed to send message: ${error.message}`, 'error');
-    }
-}
-
-async function loadMemories() {
-    saveConfig();
-    showStatus('Loading memories...', 'info');
-    
-    try {
-        const response = await fetch(`${API_URL}/users/${USER_ID}/memories`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const memories = await response.json();
-        const memoriesList = document.getElementById('memoriesList');
-        
-        if (memories.length === 0) {
-            memoriesList.innerHTML = '<div class="info-text">No memories stored yet.</div>';
-        } else {
-            memoriesList.innerHTML = memories.map((mem, index) => `
-                <div class="memory-item">
-                    <strong>Memory #${index + 1}</strong>
-                    <div class="memory-text">${mem.memory || 'N/A'}</div>
-                    <div class="memory-meta">
-                        ID: ${mem.id} | 
-                        ${mem.created_at ? `Created: ${new Date(mem.created_at).toLocaleString()}` : ''}
-                    </div>
-                </div>
-            `).join('');
-        }
-        
-        showStatus(`✅ Loaded ${memories.length} memories`, 'success');
-    } catch (error) {
-        showStatus(`❌ Failed to load memories: ${error.message}`, 'error');
-        document.getElementById('memoriesList').innerHTML = 
-            `<div class="info-text">Error: ${error.message}</div>`;
-    }
-}
-
-async function clearAllMemories() {
-    if (!confirm('Are you sure you want to delete ALL memories for this user?')) {
-        return;
-    }
-    
-    saveConfig();
-    showStatus('Deleting all memories...', 'info');
-    
-    try {
-        const response = await fetch(`${API_URL}/users/${USER_ID}/memories`, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        
-        document.getElementById('memoriesList').innerHTML = 
-            '<div class="info-text">All memories deleted.</div>';
-        showStatus('✅ All memories deleted', 'success');
-    } catch (error) {
-        showStatus(`❌ Failed to delete memories: ${error.message}`, 'error');
-    }
-}
-
-function addMessage(role, content) {
-    const messagesDiv = document.getElementById('chatMessages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
-    messageDiv.textContent = content;
-    messagesDiv.appendChild(messageDiv);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-function addSystemMessage(content) {
-    const messagesDiv = document.getElementById('chatMessages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message system';
-    messageDiv.textContent = content;
-    messagesDiv.appendChild(messageDiv);
-}
-
-function clearChatMessages() {
-    document.getElementById('chatMessages').innerHTML = '';
-}
-
-function handleKeyPress(event) {
-    if (event.key === 'Enter') {
-        sendMessage();
-    }
+function getUserId() {
+    return document.getElementById('userId').value || USER_ID;
 }
 
 function showStatus(message, type = 'info') {
@@ -303,3 +27,189 @@ function showStatus(message, type = 'info') {
     }, 3000);
 }
 
+async function testConnection() {
+    try {
+        const response = await fetch(`${getApiUrl()}/health`);
+        if (response.ok) {
+            showStatus('✅ API connection successful', 'success');
+        } else {
+            showStatus('❌ API connection failed', 'error');
+        }
+    } catch (error) {
+        showStatus('❌ Cannot connect to API', 'error');
+    }
+}
+
+async function sendMessage() {
+    const messageInput = document.getElementById('messageInput');
+    const message = messageInput.value.trim();
+    
+    if (!message) {
+        showStatus('Please enter a message', 'error');
+        return;
+    }
+    
+    const userId = getUserId();
+    if (!userId) {
+        showStatus('Please enter a user ID', 'error');
+        return;
+    }
+    
+    showStatus('Processing message...', 'info');
+    
+    try {
+        const response = await fetch(`${getApiUrl()}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                message: message
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Display response
+        displayResponse(message, data);
+        
+        // Clear input
+        messageInput.value = '';
+        
+        // Show status
+        if (data.extracted_memories && data.extracted_memories.length > 0) {
+            showStatus(`✅ Extracted ${data.extracted_memories.length} memories`, 'success');
+            loadMemories(); // Refresh memories
+        } else {
+            showStatus('✅ Message processed (no personal info)', 'success');
+        }
+        
+    } catch (error) {
+        showStatus(`❌ Error: ${error.message}`, 'error');
+    }
+}
+
+function displayResponse(message, data) {
+    const responseArea = document.getElementById('responseArea');
+    
+    const responseDiv = document.createElement('div');
+    responseDiv.className = 'response-item';
+    
+    let html = `<div class="response-message"><strong>Message:</strong> ${escapeHtml(message)}</div>`;
+    
+    if (data.extracted_memories && data.extracted_memories.length > 0) {
+        html += '<div class="response-memories"><strong>Extracted:</strong><ul>';
+        data.extracted_memories.forEach(mem => {
+            html += `<li>${escapeHtml(mem.memory || JSON.stringify(mem))}</li>`;
+        });
+        html += '</ul></div>';
+    }
+    
+    if (data.memory_context) {
+        html += `<div class="response-context"><strong>Context:</strong><pre>${escapeHtml(data.memory_context)}</pre></div>`;
+    }
+    
+    responseDiv.innerHTML = html;
+    responseArea.insertBefore(responseDiv, responseArea.firstChild);
+    
+    // Keep only last 5 responses
+    while (responseArea.children.length > 5) {
+        responseArea.removeChild(responseArea.lastChild);
+    }
+}
+
+async function loadMemories() {
+    const userId = getUserId();
+    if (!userId) {
+        showStatus('Please enter a user ID', 'error');
+        return;
+    }
+    
+    showStatus('Loading memories...', 'info');
+    
+    try {
+        const response = await fetch(`${getApiUrl()}/users/${userId}/memories`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const memories = await response.json();
+        displayMemories(memories);
+        showStatus(`✅ Loaded ${memories.length} memories`, 'success');
+        
+    } catch (error) {
+        showStatus(`❌ Error loading memories: ${error.message}`, 'error');
+    }
+}
+
+function displayMemories(memories) {
+    const memoriesList = document.getElementById('memoriesList');
+    memoriesList.innerHTML = '';
+    
+    if (memories.length === 0) {
+        memoriesList.innerHTML = '<div class="info-text">No memories stored yet</div>';
+        return;
+    }
+    
+    memories.forEach(mem => {
+        const memDiv = document.createElement('div');
+        memDiv.className = 'memory-item';
+        
+        let html = `<strong>${escapeHtml(mem.memory)}</strong>`;
+        
+        if (mem.created_at) {
+            html += `<div class="memory-meta">Created: ${new Date(mem.created_at).toLocaleString()}</div>`;
+        }
+        
+        memDiv.innerHTML = html;
+        memoriesList.appendChild(memDiv);
+    });
+}
+
+async function clearAllMemories() {
+    const userId = getUserId();
+    if (!userId) {
+        showStatus('Please enter a user ID', 'error');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to delete ALL memories? This cannot be undone.')) {
+        return;
+    }
+    
+    showStatus('Deleting memories...', 'info');
+    
+    try {
+        const response = await fetch(`${getApiUrl()}/users/${userId}/memories`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        showStatus('✅ All memories deleted', 'success');
+        loadMemories();
+        
+    } catch (error) {
+        showStatus(`❌ Error deleting memories: ${error.message}`, 'error');
+    }
+}
+
+function handleKeyPress(event) {
+    if (event.key === 'Enter') {
+        sendMessage();
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

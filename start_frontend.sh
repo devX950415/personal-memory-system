@@ -30,14 +30,14 @@ fi
 # Activate virtual environment
 source venv/bin/activate
 
-# Check if MongoDB is running
-echo "🔍 Checking MongoDB connection..."
-if python3 -c "from pymongo import MongoClient; MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=2000).server_info()" 2>/dev/null; then
-    echo "✅ MongoDB is running"
+# Check if PostgreSQL is running
+echo "🔍 Checking PostgreSQL connection..."
+if python3 -c "import psycopg2; psycopg2.connect(host='localhost', port=5432, dbname='personalmem', user='postgres', password='postgres', connect_timeout=2).close()" 2>/dev/null; then
+    echo "✅ PostgreSQL is running"
 else
-    echo "⚠️  MongoDB is not running!"
+    echo "⚠️  PostgreSQL is not running!"
     echo ""
-    echo "Start MongoDB with: docker-compose up -d"
+    echo "Start PostgreSQL with: docker compose up -d postgres"
     echo ""
     read -p "Continue anyway? (y/N) " -n 1 -r
     echo ""
@@ -56,5 +56,5 @@ echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""
 
-python api.py
+uvicorn api:app_api --reload --host 0.0.0.0 --port 8888
 

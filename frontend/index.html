@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PersonalMem - Test Interface</title>
+    <title>PersonalMem - Memory Only</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>PersonalMem System</h1>
-            <p>Test Interface for Personalized User Memory System</p>
+            <p>Personal Memory Management</p>
         </header>
 
         <div class="main-content">
@@ -28,31 +28,15 @@
                 <button onclick="testConnection()" class="btn btn-secondary">Test Connection</button>
             </div>
 
-            <!-- Chat Management -->
-            <div class="panel chat-panel">
-                <h2>Chat Management</h2>
-                <div class="form-group">
-                    <label for="chatTitle">Chat Title:</label>
-                    <input type="text" id="chatTitle" placeholder="My Chat" value="Test Chat">
-                </div>
-                <div class="button-group">
-                    <button onclick="createChat()" class="btn btn-primary">Create New Chat</button>
-                    <button onclick="loadUserChats()" class="btn btn-secondary">Load My Chats</button>
-                </div>
-                <div id="currentChatInfo" class="info-box"></div>
-            </div>
-
-            <!-- Chat Interface -->
+            <!-- Message Interface -->
             <div class="panel chat-interface">
-                <h2>Chat</h2>
-                <div id="chatMessages" class="chat-messages">
-                    <div class="message system">Select or create a chat to start...</div>
-                </div>
+                <h2>Send Message</h2>
                 <div class="chat-input-area">
                     <div class="input-group">
                         <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
                         <button onclick="sendMessage()" class="btn btn-primary">Send</button>
                     </div>
+                    <div id="responseArea" class="response-area"></div>
                 </div>
             </div>
 
@@ -76,4 +60,3 @@
     <script src="/static/app.js"></script>
 </body>
 </html>
-

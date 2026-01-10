@@ -1,6 +1,9 @@
-# MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017/
-MONGODB_DATABASE=personalmem
+# PostgreSQL Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=personalmem
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
 
 # ========================================
 # Option 1: Azure OpenAI (Recommended for Enterprise)

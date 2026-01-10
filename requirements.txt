@@ -1,16 +1,15 @@
 # Core dependencies
-mem0ai==0.1.17
-pymongo>=4.6.1,<6.0.0
 python-dotenv>=1.0.0,<2.0.0
+psycopg2-binary>=2.9.0,<3.0.0  # PostgreSQL adapter
 
 # API framework
 fastapi>=0.109.0,<0.110.0
 uvicorn>=0.27.0,<0.30.0
-pydantic>=2.7.3,<3.0.0  # mem0ai requires >=2.7.3,<3.0.0
+pydantic>=2.7.3,<3.0.0
 
 # Utilities
 python-dateutil>=2.8.2,<3.0.0
 
-# Azure OpenAI support (optional, for mem0)
-openai>=1.33.0,<2.0.0  # mem0ai requires this, but we specify for Azure compatibility
+# Azure OpenAI for memory extraction
+openai>=1.33.0,<2.0.0
 
