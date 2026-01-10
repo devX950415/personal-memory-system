@@ -50,11 +50,19 @@ header p {
 }
 
 .panel h2 {
-    margin-bottom: 15px;
+    margin-bottom: 10px;
     color: #000;
     font-size: 1.3em;
     border-bottom: 2px solid #ddd;
     padding-bottom: 10px;
+}
+
+.panel-description {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 15px;
+    line-height: 1.5;
+    font-style: italic;
 }
 
 .form-group {
@@ -155,8 +163,12 @@ header p {
 
 .response-area {
     margin-top: 20px;
-    max-height: 400px;
+    max-height: 500px;
     overflow-y: auto;
+    padding: 10px;
+    background: #fafafa;
+    border-radius: 6px;
+    border: 1px solid #ddd;
 }
 
 .response-item {
@@ -179,7 +191,69 @@ header p {
 
 .response-memories ul {
     margin-left: 20px;
-    margin-top: 5px;
+    margin-top: 8px;
+    list-style-type: none;
+    padding-left: 0;
+}
+
+.response-memories li {
+    padding: 6px 0;
+    border-bottom: 1px solid #ddd;
+}
+
+.response-memories li:last-child {
+    border-bottom: none;
+}
+
+.memory-field {
+    font-weight: 600;
+    color: #000;
+    text-transform: capitalize;
+}
+
+.memory-value {
+    color: #333;
+    font-style: italic;
+}
+
+.memory-event {
+    font-size: 11px;
+    color: #666;
+    text-transform: uppercase;
+    margin-left: 8px;
+}
+
+.memory-event.added {
+    color: #333;
+}
+
+.memory-event.removed {
+    color: #000;
+    font-weight: 600;
+}
+
+.memory-value.removed {
+    text-decoration: line-through;
+    color: #666;
+}
+
+.memory-section {
+    margin-top: 10px;
+}
+
+.memory-section strong {
+    display: block;
+    margin-bottom: 5px;
+    color: #000;
+}
+
+.response-info {
+    color: #666;
+    font-style: italic;
+    padding: 10px;
+    background: #f9f9f9;
+    border-radius: 4px;
+    margin-top: 8px;
 }
 
 .response-context {
@@ -264,6 +338,27 @@ header p {
     background: #f5f5f5;
     border-left: 4px solid #000;
     border-radius: 4px;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.memory-item:hover {
+    background: #ebebeb;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.memory-item .memory-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.memory-item .memory-content {
+    color: #000;
+    font-size: 14px;
+    flex: 1;
+    word-wrap: break-word;
 }
 
 .memory-item strong {
@@ -280,7 +375,32 @@ header p {
 .memory-item .memory-meta {
     font-size: 12px;
     color: #666;
-    margin-top: 5px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #ddd;
+}
+
+.btn-delete {
+    background: #000;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.btn-delete:hover {
+    background: #555;
+    transform: scale(1.1);
 }
 
 .info-text {
@@ -321,24 +441,28 @@ header p {
 
 /* Scrollbar styling */
 .chat-messages::-webkit-scrollbar,
-.memories-list::-webkit-scrollbar {
+.memories-list::-webkit-scrollbar,
+.response-area::-webkit-scrollbar {
     width: 8px;
 }
 
 .chat-messages::-webkit-scrollbar-track,
-.memories-list::-webkit-scrollbar-track {
+.memories-list::-webkit-scrollbar-track,
+.response-area::-webkit-scrollbar-track {
     background: #f5f5f5;
     border-radius: 4px;
 }
 
 .chat-messages::-webkit-scrollbar-thumb,
-.memories-list::-webkit-scrollbar-thumb {
+.memories-list::-webkit-scrollbar-thumb,
+.response-area::-webkit-scrollbar-thumb {
     background: #888;
     border-radius: 4px;
 }
 
 .chat-messages::-webkit-scrollbar-thumb:hover,
-.memories-list::-webkit-scrollbar-thumb:hover {
+.memories-list::-webkit-scrollbar-thumb:hover,
+.response-area::-webkit-scrollbar-thumb:hover {
     background: #000;
 }
 

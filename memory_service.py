@@ -7,8 +7,7 @@ No vector embeddings - structured key-value storage.
 
 import logging
 import json
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, List, Any
 import psycopg2
 from psycopg2 import OperationalError
 from psycopg2.extras import RealDictCursor, Json
@@ -92,8 +91,7 @@ class MemoryService:
     def add_memory_from_message(
         self,
         user_id: str,
-        message: str,
-        metadata: Dict[str, Any] = None
+        message: str
     ) -> List[Dict[str, Any]]:
         """
         Extract structured memories from a message and update user's memory.
@@ -101,7 +99,6 @@ class MemoryService:
         Args:
             user_id: User ID
             message: User's message
-            metadata: Additional metadata (unused)
             
         Returns:
             List of extracted memory updates
@@ -158,6 +155,26 @@ EXTRACT (permanent attributes only):
 - location: Where user is from or lives
 - languages: Languages user speaks (as list)
 
+IMPORTANT RULES:
+1. ADDITIONS: If user mentions something positive, add to appropriate list
+   - "I love X" → add to "likes"
+   - "I know X", "I'm good at X", "I use X" → add to "skills"
+   - "I like X" → add to "likes"
+
+2. REMOVALS: If user says something negative about an item that exists in current memories, use special format:
+   - "I am not good at X", "I don't know X", "I'm bad at X" → {"remove_skills": ["X"]}
+   - "I hate X", "I dislike X", "I don't like X" → {"remove_likes": ["X"]} and/or {"dislikes": ["X"]}
+   - "I no longer use X" → {"remove_skills": ["X"]}
+
+3. CONFLICTS:
+   - If user says they like something, put it in "likes" (NOT "dislikes")
+   - If user says they hate/dislike something, put it in "dislikes" (NOT "likes")
+   - When removing from one list due to negative statement, check if it should be added to opposite list
+
+4. FORMAT FOR REMOVALS:
+   Use keys with "remove_" prefix followed by the field name (e.g., "remove_skills", "remove_likes")
+   The value should be a list of items to remove from that field.
+
 DO NOT EXTRACT:
 - Temporary activities (e.g., "doing homework", "watching TV")
 - Short-term plans (e.g., "going tomorrow", "meeting next week")
@@ -165,20 +182,30 @@ DO NOT EXTRACT:
 - Time-bound information
 - Task-specific requests
 
-Output ONLY updates as JSON object. For lists, use array format. For single values, use strings.
+Output ONLY updates as JSON object. For additions, use normal field names. For removals, use "remove_" prefix.
 If no permanent information found, return empty object {}
 
 Examples:
 - "My name is John" → {"name": "John"}
 - "I'm a frontend developer" → {"role": "frontend developer", "stack": "frontend"}
 - "I like pizza and hate tomatoes" → {"likes": ["pizza"], "dislikes": ["tomatoes"]}
+- "I love Python" → {"likes": ["Python"]}
+- "I am not good at React" (when skills: ["React", "Vue"]) → {"remove_skills": ["React"]}
+- "I don't know JavaScript anymore" → {"remove_skills": ["JavaScript"]}
+- "I hate tomatoes" (when likes: ["tomatoes"]) → {"remove_likes": ["tomatoes"], "dislikes": ["tomatoes"]}
 - "I'm doing homework" → {} (temporary activity, ignore)"""
 
         user_prompt = f"""Current memories: {json.dumps(current_memories, indent=2)}
 
 New message: "{message}"
 
-Extract ONLY permanent personal information as JSON updates. Return empty {{}} if nothing to extract."""
+Extract ONLY permanent personal information as JSON updates.
+- Check current memories to see if user is removing something they previously had
+- If user says "I am not good at X" or "I don't know X" and X is in current "skills", use "remove_skills": ["X"]
+- If user says "I don't like X" or "I hate X" and X is in current "likes", use "remove_likes": ["X"]
+- For additions, use normal field names (e.g., "skills": ["Y"], "likes": ["Z"])
+- For removals, use "remove_" prefix (e.g., "remove_skills": ["X"], "remove_likes": ["Y"])
+- Return empty {{}} if nothing to extract."""
 
         try:
             response = self.llm_client.chat.completions.create(
@@ -200,11 +227,29 @@ Extract ONLY permanent personal information as JSON updates. Return empty {{}} i
             # Build list of changes for response
             changes = []
             for key, value in updates.items():
-                changes.append({
-                    "field": key,
-                    "value": value,
-                    "event": "UPDATE" if key in current_memories else "ADD"
-                })
+                if key.startswith("remove_"):
+                    # This is a removal - extract the actual field name
+                    field_name = key[7:]  # Remove "remove_" prefix
+                    changes.append({
+                        "field": field_name,
+                        "value": value,
+                        "event": "REMOVE"
+                    })
+                else:
+                    # This is an addition or update
+                    event = "UPDATE" if key in current_memories else "ADD"
+                    # Check if it's actually a replacement (for list fields)
+                    if isinstance(value, list) and key in current_memories and isinstance(current_memories[key], list):
+                        # Check if items are being added or if it's a complete replacement
+                        existing_normalized = {str(v).lower().strip() for v in current_memories[key]}
+                        new_normalized = {str(v).lower().strip() for v in value}
+                        if not new_normalized.issubset(existing_normalized):
+                            event = "UPDATE"  # Some items are new
+                    changes.append({
+                        "field": key,
+                        "value": value,
+                        "event": event
+                    })
             
             return {
                 "updates": updates,
@@ -221,20 +266,99 @@ Extract ONLY permanent personal information as JSON updates. Return empty {{}} i
         updates: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Merge new updates into current memories.
+        Merge new updates into current memories with conflict resolution and removals.
         
-        For lists (likes, dislikes, skills, etc): append unique items
+        For lists (likes, dislikes, skills, etc): append unique items OR remove items
         For strings/other: replace
+        
+        Conflict resolution:
+        - If item added to "likes", remove it from "dislikes"
+        - If item added to "dislikes", remove it from "likes"
+        
+        Removals:
+        - Keys with "remove_" prefix indicate items to remove from that field
+        - Example: {"remove_skills": ["react.js"]} removes "react.js" from skills list
         """
         merged = current.copy()
         
+        # Define conflicting field pairs
+        conflict_pairs = [
+            ("likes", "dislikes"),
+            ("dislikes", "likes"),
+        ]
+        
+        # Helper function to normalize items for comparison (case-insensitive)
+        def normalize_item(item):
+            """Normalize item for comparison"""
+            return str(item).lower().strip()
+        
+        # Step 1: Process removals first (before any additions)
+        removals_to_process = {}
+        normal_updates = {}
+        
         for key, value in updates.items():
+            if key.startswith("remove_") and isinstance(value, list):
+                # Extract the actual field name (e.g., "remove_skills" -> "skills")
+                field_name = key[7:]  # Remove "remove_" prefix
+                removals_to_process[field_name] = value
+            else:
+                normal_updates[key] = value
+        
+        # Process removals
+        for field_name, items_to_remove in removals_to_process.items():
+            if field_name in merged and isinstance(merged[field_name], list):
+                # Normalize items to remove for comparison
+                items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
+                # Remove items (case-insensitive comparison)
+                merged[field_name] = [
+                    item for item in merged[field_name]
+                    if normalize_item(item) not in items_to_remove_normalized
+                ]
+                # Clean up empty lists
+                if not merged[field_name]:
+                    del merged[field_name]
+                logger.info(f"Removed {len(items_to_remove)} items from {field_name}: {items_to_remove}")
+        
+        # Step 2: Resolve conflicts for additions (before merging)
+        for key, value in normal_updates.items():
+            if isinstance(value, list) and value:
+                # Check for conflicts with this field
+                for field, opposite_field in conflict_pairs:
+                    if key == field and opposite_field in merged:
+                        # Remove items from opposite field if they're being added to this field
+                        if isinstance(merged[opposite_field], list):
+                            # Normalize new values for comparison
+                            new_values_normalized = {normalize_item(v) for v in value}
+                            # Filter out conflicting items (case-insensitive comparison)
+                            merged[opposite_field] = [
+                                item for item in merged[opposite_field]
+                                if normalize_item(item) not in new_values_normalized
+                            ]
+                            # Clean up empty lists
+                            if not merged[opposite_field]:
+                                del merged[opposite_field]
+        
+        # Step 3: Merge normal updates (additions)
+        for key, value in normal_updates.items():
             if isinstance(value, list):
-                # For lists, merge and deduplicate
+                # For lists, merge and deduplicate (case-insensitive)
                 if key in merged and isinstance(merged[key], list):
-                    merged[key] = list(set(merged[key] + value))
+                    # Start with existing items
+                    existing_normalized = {normalize_item(item) for item in merged[key]}
+                    # Add new items that don't already exist (case-insensitive)
+                    for new_item in value:
+                        if normalize_item(new_item) not in existing_normalized:
+                            merged[key].append(new_item)
+                            existing_normalized.add(normalize_item(new_item))
                 else:
-                    merged[key] = value
+                    # New list, just deduplicate the updates themselves
+                    seen_normalized = set()
+                    merged[key] = []
+                    for item in value:
+                        item_normalized = normalize_item(item)
+                        if item_normalized not in seen_normalized:
+                            seen_normalized.add(item_normalized)
+                            merged[key].append(item)
             else:
                 # For other types, replace
                 merged[key] = value
@@ -432,9 +556,10 @@ Extract ONLY permanent personal information as JSON updates. Return empty {{}} i
             return False
     
     def __del__(self):
-        """Close database connection"""
+        """Close database connection on cleanup"""
         if hasattr(self, 'conn') and self.conn is not None and not self.conn.closed:
             try:
                 self.conn.close()
-            except:
+            except Exception:
+                # Ignore errors during cleanup
                 pass

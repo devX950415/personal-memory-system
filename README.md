@@ -1,25 +1,38 @@
 # PersonalMem: Personalized User Memory System
 
-A chat-based application system that remembers **key personal information about users across all chats**, while keeping **conversation history isolated per chat session**.
+A personal memory management system that automatically extracts and stores **long-term personal information** about users from their messages, using LLM-powered extraction and PostgreSQL for persistent storage.
 
-This system is inspired by ChatGPT's **personal memory** feature, built with **mem0** (AI memory layer) and **MongoDB**.
+This system is inspired by ChatGPT's **personal memory** feature, built with **PostgreSQL** (JSONB) and **Azure OpenAI** (or OpenAI) for intelligent memory extraction.
 
 ---
 
 ## 🎯 Core Principles
 
-### 1. Chat History (Per-Chat)
-- ✅ Chat messages belong to a single chat session
-- ✅ Chat history is **not shared** across chats
-- ✅ Starting a new chat does **not** load previous chat messages
-- ✅ Chat history is only used within its own chat
+### User Personal Memory (Per-User)
+- ✅ Personal memory is tied to a **user ID**
+- ✅ Personal memory persists across all sessions
+- ✅ Only **long-term personal attributes** are stored
+- ✅ **Not a full conversation log** - only key facts
+- ✅ Automatically extracted from user messages
+- ✅ Structured storage in PostgreSQL JSONB format
 
-### 2. User Personal Memory (Per-User)
-- ✅ Personal memory is tied to a **user ID**, not a chat ID
-- ✅ Personal memory is shared across **all chats**
-- ✅ Personal memory persists even when a new chat is created
-- ✅ Only **high-signal, long-term user attributes** are stored
-- ✅ **Not a full conversation log**
+### What Gets Stored
+**✅ Should be stored:**
+- Name
+- Role or profession
+- Preferences (likes, dislikes)
+- Skills and expertise
+- Location (if relevant)
+- Goals and interests
+- Language preferences
+
+**❌ Should NOT be stored:**
+- Full message transcripts
+- Temporary instructions
+- One-off questions
+- Task-specific context
+- Short-term states or plans
+- Sensitive data without explicit consent
 
 ---
 
@@ -30,30 +43,30 @@ This system is inspired by ChatGPT's **personal memory** feature, built with **m
 │                    PersonalMem App                      │
 ├─────────────────────────────────────────────────────────┤
 │                                                         │
-│  ┌────────────────────┐      ┌──────────────────────┐ │
-│  │   Chat Service     │      │   Memory Service     │ │
-│  │                    │      │                      │ │
-│  │  - Isolated chats  │      │  - User memories     │ │
-│  │  - Message history │      │  - Semantic search   │ │
-│  │  - Per-chat data   │      │  - Auto-extraction   │ │
-│  │                    │      │  - Deduplication     │ │
-│  └──────┬─────────────┘      └──────┬───────────────┘ │
-│         │                           │                  │
-│         ▼                           ▼                  │
-│  ┌─────────────┐            ┌──────────────┐          │
-│  │  MongoDB    │            │    mem0      │          │
-│  │  (Chats)    │            │  (Memories)  │          │
-│  └─────────────┘            └──────────────┘          │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │           Memory Service                         │  │
+│  │                                                   │  │
+│  │  - User memories (JSONB)                         │  │
+│  │  - LLM-based extraction                          │  │
+│  │  - Automatic merging                             │  │
+│  │  - Structured storage                            │  │
+│  └──────────────────┬───────────────────────────────┘  │
+│                     │                                    │
+│                     ▼                                    │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │              PostgreSQL                          │  │
+│  │        (JSONB column storage)                    │  │
+│  └──────────────────────────────────────────────────┘  │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### Technologies Used
 
-- **[mem0](https://github.com/mem0ai/mem0)**: AI-powered memory layer with intelligent extraction and retrieval
-- **MongoDB**: Persistent storage for chat history
+- **PostgreSQL**: Persistent storage with JSONB for structured memory data
 - **FastAPI**: REST API framework
 - **Pydantic**: Data validation and modeling
+- **Azure OpenAI / OpenAI**: LLM for intelligent memory extraction
 - **Python 3.8+**: Core language
 
 ---
@@ -63,8 +76,8 @@ This system is inspired by ChatGPT's **personal memory** feature, built with **m
 ### Prerequisites
 
 - Python 3.8+
-- MongoDB (local or cloud)
-- OpenAI API key (or other LLM provider supported by mem0)
+- PostgreSQL (via Docker or local installation)
+- Azure OpenAI API key (or regular OpenAI API key)
 
 ### 1. Clone or Download
 
@@ -72,34 +85,55 @@ This system is inspired by ChatGPT's **personal memory** feature, built with **m
 cd /home/devx/Documents/PersonalMem
 ```
 
-### 2. Create Virtual Environment
+### 2. Setup Script (Recommended)
 
 ```bash
-python -m venv venv
+chmod +x setup.sh
+./setup.sh
+```
+
+This will:
+- Create a virtual environment
+- Install all dependencies
+- Guide you through configuration
+
+### 3. Manual Setup
+
+**Create Virtual Environment:**
+```bash
+python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
-
+**Install Dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Set Up MongoDB
+### 4. Set Up PostgreSQL
 
 **Option A: Using Docker (Recommended)**
 
 ```bash
-docker-compose up -d
+docker compose up -d postgres
 ```
 
-This starts:
-- MongoDB on port 27017
-- MongoDB Express (UI) on port 8081
+This starts PostgreSQL on port 5432 with:
+- Database: `personalmem`
+- User: `postgres`
+- Password: `postgres`
 
-**Option B: Local MongoDB**
+The database schema is automatically initialized via `init_db.sql`.
 
-Install MongoDB locally and ensure it's running on `mongodb://localhost:27017/`
+**Option B: Local PostgreSQL**
+
+Install PostgreSQL locally and create the database:
+
+```sql
+CREATE DATABASE personalmem;
+```
+
+Then run `init_db.sql` to create the schema.
 
 ### 5. Configure Environment
 
@@ -112,12 +146,22 @@ cp env_example.txt .env
 Edit `.env` with your settings:
 
 ```env
-# MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017/
-MONGODB_DATABASE=personalmem
+# PostgreSQL Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=personalmem
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
 
-# OpenAI API Key (required for mem0)
-OPENAI_API_KEY=sk-your-actual-openai-api-key-here
+# Option 1: Azure OpenAI (Recommended)
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_MODEL=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
+
+# Option 2: Regular OpenAI
+# OPENAI_API_KEY=sk-your-openai-api-key-here
 
 # Application Settings
 LOG_LEVEL=INFO
@@ -132,6 +176,13 @@ LOG_LEVEL=INFO
 The demo showcases the core behavior of the system:
 
 ```bash
+./run_demo.sh
+```
+
+Or manually:
+
+```bash
+source venv/bin/activate
 python app.py
 ```
 
@@ -141,107 +192,396 @@ python app.py
 PersonalMem System Demo
 ============================================================
 
---- CHAT A: User introduces themselves ---
-Created Chat A: 12345...
-Extracted memories: 2
+--- User Message 1 ---
+Message: "My name is Alice. I'm a software engineer."
+Extracted memories: ['name', 'role']
 
---- CHAT B: New chat (should remember name) ---
-Created Chat B: 67890...
-
-Memory context available for response:
-User Personal Information (from previous conversations):
-- User's name is Honda
-- User is a software engineer who loves Python
-- User prefers working on backend systems
+--- User Message 2 ---
+Message: "I love Python and JavaScript."
+Extracted memories: ['likes']
 
 --- All Personal Memories for User ---
-1. User's name is Honda
-2. User is a software engineer who loves Python
-3. User prefers working on backend systems
-
---- Chat Isolation Check ---
-Chat A messages: 4
-Chat B messages: 2
-Chat C messages: 2
+- Name: Alice
+- Role: software engineer
+- Likes: ['Python', 'JavaScript']
 ```
 
 ### Option 2: Run the REST API
 
-Start the FastAPI server:
-
+**Using the startup script:**
 ```bash
-python api.py
+./start_api.sh
 ```
 
-Or using uvicorn directly:
-
+**Or manually:**
 ```bash
+source venv/bin/activate
 uvicorn api:app_api --reload --host 0.0.0.0 --port 8888
 ```
 
 Visit the interactive API docs at: **http://localhost:8888/docs**
 
+### Option 3: Run with Frontend
+
+```bash
+./start_frontend.sh
+```
+
+Or manually start the API server, then open **http://localhost:8888** in your browser.
+
 ---
 
 ## 📚 API Endpoints
 
-### Chat Management
+### Health Check
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/chats` | Create a new chat session |
-| `GET` | `/users/{user_id}/chats` | Get all chats for a user |
-| `GET` | `/chats/{chat_id}/messages` | Get messages in a chat |
-| `POST` | `/chats/messages` | Send a user message |
-| `POST` | `/chats/responses` | Add assistant response |
-| `DELETE` | `/chats/{chat_id}` | Delete a chat |
+**`GET /health`**
+
+Health check endpoint to verify API is running.
+
+**Request:**
+- No request body
+- No path parameters
+- No query parameters
+
+**Response (200 OK):**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-01-20T10:30:45.123456",
+  "service": "PersonalMem API"
+}
+```
+
+**Response Type:**
+```typescript
+{
+  status: string;
+  timestamp: string;  // ISO 8601 format
+  service: string;
+}
+```
+
+---
+
+### Message Processing
+
+**`POST /messages`**
+
+Process a user message and automatically extract/update personal memories.
+
+**Request:**
+```json
+{
+  "user_id": "string (required)",
+  "message": "string (required)"
+}
+```
+
+**Request Type:**
+```typescript
+{
+  user_id: string;
+  message: string;
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "memory_context": "User Personal Information:\n- name: Alice\n- role: software engineer\n- likes: Python, JavaScript",
+  "extracted_memories": [
+    {
+      "field": "name",
+      "value": "Alice",
+      "event": "ADD"
+    },
+    {
+      "field": "likes",
+      "value": ["Python"],
+      "event": "ADD"
+    },
+    {
+      "field": "skills",
+      "value": ["react.js"],
+      "event": "REMOVE"
+    }
+  ],
+  "message": "Message processed successfully"
+}
+```
+
+**Response Type:**
+```typescript
+{
+  success: boolean;
+  memory_context: string;  // Formatted string of all user memories
+  extracted_memories: Array<{
+    field: string;      // Memory field name (e.g., "name", "skills", "likes")
+    value: string | string[] | number | boolean;  // Field value (can be list for multi-value fields)
+    event: "ADD" | "UPDATE" | "REMOVE";  // Type of change
+  }>;
+  message: string;  // Status message
+}
+```
+
+**Error Responses:**
+- `503 Service Unavailable`: Database connection not available
+- `500 Internal Server Error`: Error processing message
+
+**Example:**
+```bash
+curl -X POST "http://localhost:8888/messages" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user_123",
+    "message": "My name is Alice and I love Python."
+  }'
+```
+
+> **Note:** Memory extraction is **automatic**! The LLM analyzes every message to detect long-term personal information. Items can be added, updated, or removed based on the message content.
+
+---
 
 ### Memory Management
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/users/{user_id}/memories` | Get all user memories |
-| `DELETE` | `/memories/{memory_id}` | Delete a specific memory |
-| `DELETE` | `/users/{user_id}/memories` | Delete all user memories |
-| `GET` | `/users/{user_id}/context/{chat_id}` | Get context for response generation |
+**`GET /users/{user_id}/memories`**
 
-### Example API Usage
+Get all memories for a specific user.
 
-**1. Create a Chat**
+**Path Parameters:**
+- `user_id` (string, required): User identifier
 
-```bash
-curl -X POST "http://localhost:8888/chats" \
-  -H "Content-Type: application/json" \
-  -d '{
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "user_123_name",
+    "memory": "name: Alice",
     "user_id": "user_123",
-    "title": "My First Chat"
-  }'
+    "created_at": "2025-01-20T10:30:45.123456",
+    "updated_at": "2025-01-20T10:30:45.123456"
+  },
+  {
+    "id": "user_123_skills",
+    "memory": "skills: Python, JavaScript, React",
+    "user_id": "user_123",
+    "created_at": "2025-01-20T10:35:12.789012",
+    "updated_at": "2025-01-20T11:20:30.456789"
+  }
+]
 ```
 
-**2. Send a Message**
-
-```bash
-curl -X POST "http://localhost:8888/chats/messages" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "user_123",
-    "chat_id": "chat_abc",
-    "message": "My name is Honda and I love Python."
-  }'
+**Response Type:**
+```typescript
+Array<{
+  id: string;              // Format: "{user_id}_{field_name}"
+  memory: string;          // Formatted as "{field}: {value}"
+  user_id: string | null;  // User identifier
+  created_at: string | null;  // ISO 8601 timestamp
+  updated_at: string | null;  // ISO 8601 timestamp
+}>
 ```
 
-> **Note:** Memory extraction is **automatic**! The LLM analyzes every message to detect long-term personal information. No manual flag needed.
+**Empty Response (200 OK):**
+```json
+[]
+```
 
-**3. Get User Memories**
+**Error Responses:**
+- `503 Service Unavailable`: Database connection not available
+- `500 Internal Server Error`: Error retrieving memories
 
+**Example:**
 ```bash
 curl -X GET "http://localhost:8888/users/user_123/memories"
 ```
 
-**4. Get Context for Response**
+---
 
+**`GET /users/{user_id}/memories/search`**
+
+Search user memories (keyword-based search within memory content).
+
+**Path Parameters:**
+- `user_id` (string, required): User identifier
+
+**Query Parameters:**
+- `query` (string, required): Search query
+- `limit` (integer, optional): Maximum number of results (default: 5)
+
+**Response (200 OK):**
+```json
+[
+  {
+    "id": "user_123_skills",
+    "memory": "skills: Python, JavaScript, React",
+    "user_id": "user_123",
+    "created_at": "2025-01-20T10:35:12.789012",
+    "updated_at": "2025-01-20T11:20:30.456789"
+  }
+]
+```
+
+**Response Type:**
+```typescript
+Array<{
+  id: string;
+  memory: string;
+  user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}>
+```
+
+**Example:**
 ```bash
-curl -X GET "http://localhost:8888/users/user_123/context/chat_abc"
+curl -X GET "http://localhost:8888/users/user_123/memories/search?query=Python&limit=5"
+```
+
+---
+
+**`DELETE /users/{user_id}/memories`**
+
+Delete all memories for a user.
+
+**Path Parameters:**
+- `user_id` (string, required): User identifier
+
+**Response (200 OK):**
+```json
+{
+  "message": "All memories deleted for user user_123"
+}
+```
+
+**Response Type:**
+```typescript
+{
+  message: string;
+}
+```
+
+**Error Responses:**
+- `500 Internal Server Error`: Failed to delete memories
+
+**Example:**
+```bash
+curl -X DELETE "http://localhost:8888/users/user_123/memories"
+```
+
+---
+
+**`DELETE /memories/{memory_id}`**
+
+Delete a specific memory by ID.
+
+**Path Parameters:**
+- `memory_id` (string, required): Memory ID (format: "{user_id}_{field_name}")
+
+**Response (200 OK):**
+```json
+{
+  "message": "Memory user_123_skills deleted"
+}
+```
+
+**Response Type:**
+```typescript
+{
+  message: string;
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: Memory not found
+- `500 Internal Server Error`: Error deleting memory
+
+**Example:**
+```bash
+curl -X DELETE "http://localhost:8888/memories/user_123_skills"
+```
+
+---
+
+**`GET /users/{user_id}/context`**
+
+Get complete context for a user (all memories in structured format).
+
+**Path Parameters:**
+- `user_id` (string, required): User identifier
+
+**Response (200 OK):**
+```json
+{
+  "user_memories": [
+    {
+      "id": "user_123_name",
+      "memory": "name: Alice",
+      "user_id": "user_123",
+      "created_at": "2025-01-20T10:30:45.123456",
+      "updated_at": "2025-01-20T10:30:45.123456"
+    }
+  ],
+  "user_id": "user_123"
+}
+```
+
+**Response Type:**
+```typescript
+{
+  user_memories: Array<{
+    id: string;
+    memory: string;
+    user_id: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+  }>;
+  user_id: string;
+}
+```
+
+**Error Responses:**
+- `500 Internal Server Error`: Error retrieving context
+
+**Example:**
+```bash
+curl -X GET "http://localhost:8888/users/user_123/context"
+```
+
+---
+
+### API Endpoints Summary
+
+| Method | Endpoint | Request Body | Response Type | Description |
+|--------|----------|--------------|---------------|-------------|
+| `GET` | `/health` | None | `{status, timestamp, service}` | Health check |
+| `POST` | `/messages` | `{user_id, message}` | `{success, memory_context, extracted_memories, message}` | Process message and extract memories |
+| `GET` | `/users/{user_id}/memories` | None | `Array<MemoryInfo>` | Get all user memories |
+| `GET` | `/users/{user_id}/memories/search` | Query: `query`, `limit` | `Array<MemoryInfo>` | Search user memories |
+| `DELETE` | `/users/{user_id}/memories` | None | `{message}` | Delete all user memories |
+| `DELETE` | `/memories/{memory_id}` | None | `{message}` | Delete specific memory |
+| `GET` | `/users/{user_id}/context` | None | `{user_memories, user_id}` | Get complete user context |
+
+**MemoryInfo Type:**
+```typescript
+{
+  id: string;              // Format: "{user_id}_{field_name}"
+  memory: string;          // Formatted as "{field}: {value}"
+  user_id: string | null;
+  created_at: string | null;  // ISO 8601 timestamp
+  updated_at: string | null;  // ISO 8601 timestamp
+}
+```
+
+**Extracted Memory Type:**
+```typescript
+{
+  field: string;      // Field name (e.g., "name", "skills", "likes")
+  value: string | string[] | number | boolean;  // Field value
+  event: "ADD" | "UPDATE" | "REMOVE";  // Change type
+}
 ```
 
 ---
@@ -250,59 +590,76 @@ curl -X GET "http://localhost:8888/users/user_123/context/chat_abc"
 
 ### ⚡ Automatic Extraction
 
-**Every message is automatically analyzed by the LLM** to determine if it contains long-term personal information. There is **no manual flag** or checkbox needed - the AI decides what's worth remembering.
+**Every message is automatically analyzed by the LLM** to determine if it contains long-term personal information. The system uses a carefully crafted prompt to:
 
-- ✅ **Automatic**: LLM analyzes every message
-- ✅ **Intelligent**: Only extracts meaningful personal information
-- ✅ **Seamless**: Works in the background without user intervention
-- ✅ **Smart**: Doesn't store temporary or task-specific content
+- ✅ Extract only permanent attributes and preferences
+- ✅ Filter out temporary states and task-specific context
+- ✅ Merge new information with existing memories
+- ✅ Handle list-based attributes (e.g., likes, skills)
 
-### What Gets Stored
+### Extraction Process
 
-**✅ Should be stored:**
-- Name
-- Role or profession
-- Preferences
-- Goals
-- Language preference
-- Repeated constraints or interests
-
-**❌ Should NOT be stored:**
-- Full chat transcripts
-- Temporary instructions
-- One-off questions
-- Task-specific context
-- Sensitive data without explicit consent
-
-### Automatic Filtering by mem0
-
-The system uses **mem0** which intelligently:
-1. **Extracts** only meaningful, long-term information
-2. **Deduplicates** similar memories
-3. **Updates** existing memories when new information arrives
-4. **Filters out** temporary or task-specific content
+1. **Message Analysis**: User message is sent to LLM with extraction prompt
+2. **Fact Extraction**: LLM returns structured JSON with personal facts
+3. **Memory Merging**: New facts are merged with existing memories
+4. **Storage**: Updated memories are stored in PostgreSQL JSONB format
 
 ### Example Behavior
 
 ```python
-# User says in Chat A:
-"My name is Honda. I'm a software engineer."
+# User says:
+"My name is Alice. I'm a software engineer."
 
-# mem0 extracts:
-# - "User's name is Honda"
-# - "User is a software engineer"
+# System extracts:
+{
+  "name": "Alice",
+  "role": "software engineer"
+}
 
-# User says in Chat B (different chat):
-"What is my name?"
+# User says later:
+"I love Python and JavaScript."
 
-# System retrieves from memory:
-# "User's name is Honda"
-# Response: "Your name is Honda."
+# System extracts and merges:
+{
+  "name": "Alice",
+  "role": "software engineer",
+  "likes": ["Python", "JavaScript"]
+}
 
-# User says in Chat C:
-"Help me debug this function."
+# User says:
+"I need help debugging this function."
 
-# mem0 does NOT store this (task-specific, not personal)
+# System does NOT store this (task-specific, not personal)
+```
+
+---
+
+## 🗄️ Database Schema
+
+### user_memories Table
+
+```sql
+CREATE TABLE user_memories (
+    user_id TEXT PRIMARY KEY,
+    memories JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_memories_gin ON user_memories USING GIN (memories);
+```
+
+### Example Memory Structure
+
+```json
+{
+  "name": "Alice",
+  "role": "software engineer",
+  "likes": ["Python", "JavaScript", "pizza"],
+  "dislikes": ["tomato"],
+  "skills": ["backend development", "API design"],
+  "location": "New York"
+}
 ```
 
 ---
@@ -311,17 +668,23 @@ The system uses **mem0** which intelligently:
 
 ```
 PersonalMem/
-├── app.py                  # Main application with demo
 ├── api.py                  # FastAPI REST API
+├── app.py                  # Main application with demo
 ├── config.py               # Configuration management
-├── models.py               # Data models (Chat, Message, Memory)
-├── memory_service.py       # User memory management (mem0)
-├── chat_service.py         # Chat history management (MongoDB)
+├── memory_service.py       # User memory management (PostgreSQL + LLM)
 ├── requirements.txt        # Python dependencies
-├── docker-compose.yml      # MongoDB + Mongo Express
-├── env_example.txt         # Example environment variables
-├── .gitignore             # Git ignore file
-└── README.md              # This file
+├── docker-compose.yml      # PostgreSQL service
+├── init_db.sql            # Database schema initialization
+├── env_example.txt        # Example environment variables
+├── setup.sh               # Setup script
+├── start_api.sh           # API server startup script
+├── start_frontend.sh      # Frontend + API startup script
+├── run_demo.sh            # Demo runner script
+├── restart_postgres.sh    # PostgreSQL restart script
+└── frontend/              # Web frontend
+    ├── index.html
+    ├── app.js
+    └── styles.css
 ```
 
 ---
@@ -331,36 +694,37 @@ PersonalMem/
 ### Scenario 1: Name Persistence
 
 ```python
-# Chat A
-user: "My name is Honda."
-assistant: "Nice to meet you, Honda!"
+# First message
+user: "My name is Alice."
+system: Extracts {"name": "Alice"}
 
-# Chat B (new chat)
-user: "What is my name?"
-assistant: "Your name is Honda."  # Retrieved from memory
+# Later message
+user: "What did I tell you my name was?"
+system: Retrieves from memory: "Alice"
 ```
 
-### Scenario 2: Task Context (Not Stored)
+### Scenario 2: Preference Tracking
 
 ```python
-# Chat A
-user: "I need help debugging this function: def add(a,b): return a-b"
-# mem0 correctly identifies this as task-specific and doesn't store it
+# First message
+user: "I love Python and pizza."
+system: Extracts {"likes": ["Python", "pizza"]}
 
-# Chat B
+# Later message
+user: "I also like JavaScript."
+system: Merges: {"likes": ["Python", "pizza", "JavaScript"]}
+```
+
+### Scenario 3: Task Context (Not Stored)
+
+```python
+# User message
+user: "I need help debugging this function."
+system: Does NOT store (task-specific, not personal)
+
+# Later message
 user: "What was I asking about earlier?"
-assistant: "I don't have information about previous chats."  # Correct!
-```
-
-### Scenario 3: Preference Tracking
-
-```python
-# Chat A
-user: "I prefer Python over JavaScript."
-
-# Chat B (weeks later)
-user: "What language should I use for my backend?"
-assistant: "Based on your preference for Python, I'd recommend..."
+system: Cannot retrieve (correctly not stored)
 ```
 
 ---
@@ -371,42 +735,44 @@ assistant: "Based on your preference for Python, I'd recommend..."
 
 Users can:
 - ✅ **View** all their memories: `GET /users/{user_id}/memories`
-- ✅ **Delete** specific memories: `DELETE /memories/{memory_id}`
+- ✅ **Update** specific memories: `PUT /users/{user_id}/memories/{key}`
+- ✅ **Delete** specific memories: `DELETE /users/{user_id}/memories/{key}`
 - ✅ **Opt-out** completely: `DELETE /users/{user_id}/memories`
 
-### Data Separation
+### Data Storage
 
-- **Chat history** is stored in MongoDB
-- **User memories** are stored in mem0 (Qdrant vector DB)
-- Memories are **never** full chat transcripts
+- **User memories** are stored in PostgreSQL (JSONB format)
+- Memories are **never** full message transcripts
 - Each memory is independently manageable
+- Data is structured for easy querying and updates
 
 ---
 
 ## 🛠️ Development
 
-### Running Tests
+### Database Management
 
+**Restart PostgreSQL (with fresh schema):**
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio httpx
-
-# Run tests
-pytest
+./restart_postgres.sh
 ```
 
-### Linting
-
+**View PostgreSQL logs:**
 ```bash
-# Install linting tools
-pip install flake8 black
-
-# Format code
-black .
-
-# Check code quality
-flake8 .
+docker compose logs postgres
 ```
+
+**Connect to PostgreSQL:**
+```bash
+docker compose exec postgres psql -U postgres -d personalmem
+```
+
+### Testing
+
+The API can be tested using:
+- Interactive docs: http://localhost:8888/docs
+- Frontend interface: http://localhost:8888/
+- curl commands (see API Endpoints section)
 
 ---
 
@@ -415,10 +781,16 @@ flake8 .
 ### Environment Variables for Production
 
 ```env
-# Use production MongoDB (e.g., MongoDB Atlas)
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/
+# Production PostgreSQL
+POSTGRES_HOST=your-postgres-host
+POSTGRES_PORT=5432
+POSTGRES_DB=personalmem
+POSTGRES_USER=your-user
+POSTGRES_PASSWORD=your-secure-password
 
 # Secure your API keys
+AZURE_OPENAI_API_KEY=your-production-key
+# or
 OPENAI_API_KEY=sk-your-production-key
 
 # Set appropriate log level
@@ -427,8 +799,7 @@ LOG_LEVEL=WARNING
 
 ### Docker Deployment
 
-Create a `Dockerfile`:
-
+**Build API container:**
 ```dockerfile
 FROM python:3.11-slim
 
@@ -441,11 +812,10 @@ COPY . .
 CMD ["uvicorn", "api:app_api", "--host", "0.0.0.0", "--port", "8888"]
 ```
 
-Build and run:
-
+**Build and run:**
 ```bash
 docker build -t personalmem .
-docker run -p 8888:8888 --env-file .env personalmem
+docker run -p 8888:8888 --env-file .env --link personalmem_postgres:postgres personalmem
 ```
 
 ---
@@ -468,9 +838,10 @@ MIT License - feel free to use this in your projects!
 
 ## 🙏 Acknowledgments
 
-- **[mem0](https://github.com/mem0ai/mem0)** - Intelligent memory layer for AI applications
-- **MongoDB** - Document database for chat storage
+- **PostgreSQL** - Robust relational database with JSONB support
+- **Azure OpenAI / OpenAI** - Powerful LLM for memory extraction
 - **FastAPI** - Modern web framework
+- **ChatGPT** - Inspiration for personal memory feature
 
 ---
 
@@ -480,17 +851,18 @@ For issues, questions, or feature requests, please open an issue on GitHub.
 
 ---
 
-## 🎯 Definition of Done ✅
+## 🎯 Features
 
-- ✅ User personal information persists across chats
-- ✅ Chat conversations remain isolated
-- ✅ Only selective personal data is stored
-- ✅ Behavior matches the specified examples
-- ✅ Memory inspection supported
-- ✅ Memory deletion supported
-- ✅ Memory opt-out per user supported
+- ✅ Automatic memory extraction from user messages
+- ✅ Long-term personal information persistence
+- ✅ Structured storage in PostgreSQL JSONB
+- ✅ LLM-powered intelligent extraction
+- ✅ Memory inspection and management
+- ✅ Memory deletion (specific or all)
+- ✅ RESTful API interface
+- ✅ Web frontend for testing
+- ✅ Docker-based PostgreSQL setup
 
 ---
 
-**Built with ❤️ using mem0 and MongoDB**
-
+**Built with ❤️ using PostgreSQL and Azure OpenAI**

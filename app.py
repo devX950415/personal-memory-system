@@ -7,7 +7,6 @@ Main application logic focusing on:
 """
 
 from typing import Dict, List, Any
-from datetime import datetime
 import logging
 
 from memory_service import MemoryService
@@ -55,8 +54,7 @@ class PersonalMemApp:
         # Step 1: Automatically extract memories
         extracted_memories = self.memory_service.add_memory_from_message(
             user_id=user_id,
-            message=message,
-            metadata={}
+            message=message
         )
         
         # Step 2: Get relevant memories for context

@@ -3,11 +3,7 @@
 const API_URL = 'http://localhost:8888';
 let USER_ID = 'test_user';
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    USER_ID = document.getElementById('userId').value;
-    testConnection();
-});
+// Initialize is now handled at the bottom of the file
 
 function getApiUrl() {
     return document.getElementById('apiUrl').value || API_URL;
@@ -32,11 +28,14 @@ async function testConnection() {
         const response = await fetch(`${getApiUrl()}/health`);
         if (response.ok) {
             showStatus('✅ API connection successful', 'success');
+            return true;
         } else {
             showStatus('❌ API connection failed', 'error');
+            return false;
         }
     } catch (error) {
-        showStatus('❌ Cannot connect to API', 'error');
+        showStatus('❌ Cannot connect to API. Make sure the server is running.', 'error');
+        return false;
     }
 }
 
@@ -83,7 +82,15 @@ async function sendMessage() {
         
         // Show status
         if (data.extracted_memories && data.extracted_memories.length > 0) {
-            showStatus(`✅ Extracted ${data.extracted_memories.length} memories`, 'success');
+            const addedCount = data.extracted_memories.filter(m => m.event !== 'REMOVE').length;
+            const removedCount = data.extracted_memories.filter(m => m.event === 'REMOVE').length;
+            
+            let statusMsg = '✅ Memory updated: ';
+            if (addedCount > 0) statusMsg += `${addedCount} added`;
+            if (addedCount > 0 && removedCount > 0) statusMsg += ', ';
+            if (removedCount > 0) statusMsg += `${removedCount} removed`;
+            
+            showStatus(statusMsg, 'success');
             loadMemories(); // Refresh memories
         } else {
             showStatus('✅ Message processed (no personal info)', 'success');
@@ -97,30 +104,69 @@ async function sendMessage() {
 function displayResponse(message, data) {
     const responseArea = document.getElementById('responseArea');
     
+    // Clear placeholder if it exists
+    const placeholder = responseArea.querySelector('.info-text');
+    if (placeholder) {
+        placeholder.remove();
+    }
+    
     const responseDiv = document.createElement('div');
     responseDiv.className = 'response-item';
     
-    let html = `<div class="response-message"><strong>Message:</strong> ${escapeHtml(message)}</div>`;
+    let html = `<div class="response-message"><strong>Your Message:</strong> "${escapeHtml(message)}"</div>`;
     
     if (data.extracted_memories && data.extracted_memories.length > 0) {
-        html += '<div class="response-memories"><strong>Extracted:</strong><ul>';
-        data.extracted_memories.forEach(mem => {
-            html += `<li>${escapeHtml(mem.memory || JSON.stringify(mem))}</li>`;
-        });
-        html += '</ul></div>';
+        const additions = data.extracted_memories.filter(m => m.event !== 'REMOVE');
+        const removals = data.extracted_memories.filter(m => m.event === 'REMOVE');
+        
+        html += '<div class="response-memories"><strong>Memory Changes:</strong>';
+        
+        if (additions.length > 0) {
+            html += '<div class="memory-section"><strong>Added/Updated:</strong><ul>';
+            additions.forEach(mem => {
+                const field = mem.field || mem.key || 'unknown';
+                let value = mem.value || '';
+                if (Array.isArray(value)) {
+                    value = value.join(', ');
+                }
+                const event = mem.event || 'ADDED';
+                html += `<li><span class="memory-field">${escapeHtml(field)}</span>: <span class="memory-value">${escapeHtml(String(value))}</span> <span class="memory-event added">(${event})</span></li>`;
+            });
+            html += '</ul></div>';
+        }
+        
+        if (removals.length > 0) {
+            html += '<div class="memory-section"><strong>Removed:</strong><ul>';
+            removals.forEach(mem => {
+                const field = mem.field || mem.key || 'unknown';
+                let value = mem.value || '';
+                if (Array.isArray(value)) {
+                    value = value.join(', ');
+                }
+                html += `<li><span class="memory-field">${escapeHtml(field)}</span>: <span class="memory-value removed">${escapeHtml(String(value))}</span> <span class="memory-event removed">(REMOVED)</span></li>`;
+            });
+            html += '</ul></div>';
+        }
+        
+        html += '</div>';
+    } else {
+        html += '<div class="response-info">No personal information extracted from this message.</div>';
     }
     
-    if (data.memory_context) {
-        html += `<div class="response-context"><strong>Context:</strong><pre>${escapeHtml(data.memory_context)}</pre></div>`;
+    if (data.memory_context && data.memory_context.trim()) {
+        html += `<div class="response-context"><strong>Current Memory Context:</strong><pre>${escapeHtml(data.memory_context)}</pre></div>`;
     }
     
     responseDiv.innerHTML = html;
     responseArea.insertBefore(responseDiv, responseArea.firstChild);
     
-    // Keep only last 5 responses
-    while (responseArea.children.length > 5) {
+    // Keep only last 10 responses
+    while (responseArea.children.length > 10) {
         responseArea.removeChild(responseArea.lastChild);
     }
+    
+    // Auto-scroll to top
+    responseArea.scrollTop = 0;
 }
 
 async function loadMemories() {
@@ -153,18 +199,29 @@ function displayMemories(memories) {
     memoriesList.innerHTML = '';
     
     if (memories.length === 0) {
-        memoriesList.innerHTML = '<div class="info-text">No memories stored yet</div>';
+        memoriesList.innerHTML = '<div class="info-text">No memories stored yet.<br>Send a message with personal information to create memories.</div>';
         return;
     }
     
     memories.forEach(mem => {
         const memDiv = document.createElement('div');
         memDiv.className = 'memory-item';
+        memDiv.setAttribute('data-memory-id', mem.id || '');
         
-        let html = `<strong>${escapeHtml(mem.memory)}</strong>`;
+        let html = `<div class="memory-header">
+            <span class="memory-content">${escapeHtml(mem.memory || 'No memory content')}</span>
+            <button onclick="deleteMemory('${escapeHtml(mem.id || '')}')" class="btn-delete" title="Delete this memory">×</button>
+        </div>`;
         
-        if (mem.created_at) {
-            html += `<div class="memory-meta">Created: ${new Date(mem.created_at).toLocaleString()}</div>`;
+        if (mem.created_at || mem.updated_at) {
+            html += '<div class="memory-meta">';
+            if (mem.created_at) {
+                html += `Created: ${new Date(mem.created_at).toLocaleString()}`;
+            }
+            if (mem.updated_at && mem.updated_at !== mem.created_at) {
+                html += ` | Updated: ${new Date(mem.updated_at).toLocaleString()}`;
+            }
+            html += '</div>';
         }
         
         memDiv.innerHTML = html;
@@ -202,6 +259,36 @@ async function clearAllMemories() {
     }
 }
 
+async function deleteMemory(memoryId) {
+    if (!memoryId) {
+        showStatus('Invalid memory ID', 'error');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to delete this memory?')) {
+        return;
+    }
+    
+    showStatus('Deleting memory...', 'info');
+    
+    try {
+        const response = await fetch(`${getApiUrl()}/memories/${encodeURIComponent(memoryId)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || `HTTP ${response.status}`);
+        }
+        
+        showStatus('✅ Memory deleted', 'success');
+        loadMemories(); // Refresh the list
+        
+    } catch (error) {
+        showStatus(`❌ Error deleting memory: ${error.message}`, 'error');
+    }
+}
+
 function handleKeyPress(event) {
     if (event.key === 'Enter') {
         sendMessage();
@@ -213,3 +300,23 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// Auto-load memories on page load
+document.addEventListener('DOMContentLoaded', async () => {
+    USER_ID = document.getElementById('userId').value;
+    const userIdInput = document.getElementById('userId');
+    
+    // Update USER_ID when input changes
+    userIdInput.addEventListener('change', () => {
+        USER_ID = userIdInput.value;
+        if (USER_ID) {
+            loadMemories();
+        }
+    });
+    
+    // Test connection and load memories on initialization
+    await testConnection();
+    if (getUserId()) {
+        loadMemories();
+    }
+});

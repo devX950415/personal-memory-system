@@ -31,24 +31,28 @@
             <!-- Message Interface -->
             <div class="panel chat-interface">
                 <h2>Send Message</h2>
+                <p class="panel-description">Type messages with personal information. The system will automatically extract and store long-term personal facts (name, preferences, role, etc.).</p>
                 <div class="chat-input-area">
                     <div class="input-group">
-                        <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+                        <input type="text" id="messageInput" placeholder="e.g., 'My name is Alice and I love Python'" onkeypress="handleKeyPress(event)">
                         <button onclick="sendMessage()" class="btn btn-primary">Send</button>
                     </div>
-                    <div id="responseArea" class="response-area"></div>
+                    <div id="responseArea" class="response-area">
+                        <div class="info-text">Messages and extracted memories will appear here...</div>
+                    </div>
                 </div>
             </div>
 
             <!-- Memories Panel -->
             <div class="panel memories-panel">
                 <h2>User Memories</h2>
+                <p class="panel-description">All stored personal memories for the current user. Click × to delete individual memories.</p>
                 <div class="button-group">
-                    <button onclick="loadMemories()" class="btn btn-secondary">Refresh Memories</button>
-                    <button onclick="clearAllMemories()" class="btn btn-danger">Clear All Memories</button>
+                    <button onclick="loadMemories()" class="btn btn-secondary">🔄 Refresh</button>
+                    <button onclick="clearAllMemories()" class="btn btn-danger">🗑️ Clear All</button>
                 </div>
                 <div id="memoriesList" class="memories-list">
-                    <div class="info-text">Click "Refresh Memories" to load</div>
+                    <div class="info-text">Loading memories...</div>
                 </div>
             </div>
         </div>
