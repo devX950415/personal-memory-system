@@ -26,6 +26,9 @@ class MemoryService:
     Stores memories as structured JSON: {"likes": [...], "dislikes": [...], "role": "...", etc}
     """
     
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1  # seconds
+    
     def __init__(self):
         """Initialize PostgreSQL connection and LLM client"""
         # Database connection will be lazy - only connect when needed
@@ -35,7 +38,8 @@ class MemoryService:
             'port': config.POSTGRES_PORT,
             'dbname': config.POSTGRES_DB,
             'user': config.POSTGRES_USER,
-            'password': config.POSTGRES_PASSWORD
+            'password': config.POSTGRES_PASSWORD,
+            'connect_timeout': 10
         }
         
         # Initialize LLM client for memory extraction
@@ -52,27 +56,59 @@ class MemoryService:
         
         logger.info("MemoryService initialized (lazy database connection)")
     
-    def _get_connection(self):
-        """Get database connection (lazy connection)"""
+    def _is_connection_valid(self) -> bool:
+        """Check if the current connection is still valid"""
         if self.conn is None or self.conn.closed:
+            return False
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+    
+    def _get_connection(self, retry_count: int = 0):
+        """Get database connection with retry logic"""
+        import time
+        
+        # Check if existing connection is valid
+        if self._is_connection_valid():
+            return self.conn
+        
+        # Close stale connection if exists
+        if self.conn is not None:
             try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = None
+        
+        # Try to establish new connection with retries
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                logger.info(f"Connecting to PostgreSQL (attempt {attempt + 1}/{self.MAX_RETRIES})...")
                 self.conn = psycopg2.connect(**self._db_config)
                 self.conn.autocommit = True
                 # Create table if not exists on first connection
                 self._init_database()
                 logger.info("Database connection established")
+                return self.conn
             except OperationalError as e:
-                logger.error(f"Failed to connect to PostgreSQL: {e}")
-                raise ConnectionError(
-                    f"Cannot connect to PostgreSQL at {self._db_config['host']}:{self._db_config['port']}. "
-                    f"Please ensure PostgreSQL is running. Error: {e}"
-                )
-        return self.conn
+                last_error = e
+                logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(self.RETRY_DELAY)
+        
+        logger.error(f"Failed to connect to PostgreSQL after {self.MAX_RETRIES} attempts")
+        raise ConnectionError(
+            f"Cannot connect to PostgreSQL at {self._db_config['host']}:{self._db_config['port']} "
+            f"after {self.MAX_RETRIES} attempts. Please ensure PostgreSQL is running. Error: {last_error}"
+        )
     
     def _init_database(self):
         """Create memories table if it doesn't exist"""
-        conn = self._get_connection()
-        with conn.cursor() as cur:
+        with self.conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_memories (
                     user_id TEXT PRIMARY KEY,
@@ -87,6 +123,26 @@ class MemoryService:
                 ON user_memories USING GIN (memories)
             """)
             logger.info("Database table initialized")
+    
+    def _execute_with_retry(self, operation, *args, **kwargs):
+        """Execute a database operation with automatic reconnection on failure"""
+        import time
+        
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                # Ensure we have a valid connection
+                self._get_connection()
+                return operation(*args, **kwargs)
+            except (OperationalError, psycopg2.InterfaceError) as e:
+                last_error = e
+                logger.warning(f"Database operation failed (attempt {attempt + 1}): {e}")
+                # Invalidate connection so it will be recreated
+                self.conn = None
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(self.RETRY_DELAY)
+        
+        raise ConnectionError(f"Database operation failed after {self.MAX_RETRIES} attempts: {last_error}")
     
     def add_memory_from_message(
         self,
@@ -429,18 +485,21 @@ CRITICAL:
     
     def _save_memories(self, user_id: str, memories: Dict[str, Any]):
         """Save memories to PostgreSQL"""
-        logger.debug(f"Saving memories for {user_id}: {memories}")
-        conn = self._get_connection()
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO user_memories (user_id, memories, created_at, updated_at)
-                VALUES (%s, %s, now(), now())
-                ON CONFLICT (user_id) 
-                DO UPDATE SET 
-                    memories = %s,
-                    updated_at = now()
-            """, (user_id, Json(memories), Json(memories)))
-            logger.info(f"Successfully saved memories to database for user {user_id}")
+        def _do_save():
+            logger.debug(f"Saving memories for {user_id}: {memories}")
+            conn = self._get_connection()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO user_memories (user_id, memories, created_at, updated_at)
+                    VALUES (%s, %s, now(), now())
+                    ON CONFLICT (user_id) 
+                    DO UPDATE SET 
+                        memories = %s,
+                        updated_at = now()
+                """, (user_id, Json(memories), Json(memories)))
+                logger.info(f"Successfully saved memories to database for user {user_id}")
+        
+        self._execute_with_retry(_do_save)
     
     def get_user_memories(self, user_id: str) -> Dict[str, Any]:
         """
@@ -449,7 +508,7 @@ CRITICAL:
         Returns:
             Dictionary of memories (empty dict if no memories)
         """
-        try:
+        def _do_get():
             conn = self._get_connection()
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
@@ -461,7 +520,9 @@ CRITICAL:
                 if result:
                     return result['memories']
                 return {}
-                
+        
+        try:
+            return self._execute_with_retry(_do_get)
         except ConnectionError:
             raise
         except Exception as e:
@@ -475,7 +536,7 @@ CRITICAL:
         Returns:
             List of memory items with metadata
         """
-        try:
+        def _do_get_all():
             conn = self._get_connection()
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
@@ -505,7 +566,9 @@ CRITICAL:
                 
                 logger.info(f"Retrieved {len(memories_list)} memory items for user {user_id}")
                 return memories_list
-                
+        
+        try:
+            return self._execute_with_retry(_do_get_all)
         except ConnectionError:
             raise
         except Exception as e:
@@ -568,7 +631,7 @@ CRITICAL:
         Returns:
             True if successful
         """
-        try:
+        def _do_delete():
             parts = memory_id.rsplit("_", 1)
             if len(parts) != 2:
                 return False
@@ -586,7 +649,9 @@ CRITICAL:
                 
                 logger.info(f"Deleted memory field {field} for user {user_id}")
                 return True
-                
+        
+        try:
+            return self._execute_with_retry(_do_delete)
         except ConnectionError:
             raise
         except Exception as e:
@@ -603,7 +668,7 @@ CRITICAL:
         Returns:
             True if successful
         """
-        try:
+        def _do_delete_all():
             conn = self._get_connection()
             with conn.cursor() as cur:
                 cur.execute(
@@ -612,7 +677,9 @@ CRITICAL:
                 )
                 logger.info(f"Deleted all memories for user {user_id}")
                 return True
-                
+        
+        try:
+            return self._execute_with_retry(_do_delete_all)
         except ConnectionError:
             raise
         except Exception as e:
