@@ -3,8 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PersonalMem - Memory Only</title>
+    <title>PersonalMem</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+        .tab-btn {
+            padding: 10px 20px;
+            border: 2px solid #000;
+            background: white;
+            cursor: pointer;
+            font-weight: 500;
+            border-radius: 6px;
+        }
+        .tab-btn.active { background: #000; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .endpoint {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid #ddd;
+        }
+        .endpoint-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .method {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 11px;
+            color: white;
+        }
+        .method.get { background: #28a745; }
+        .method.post { background: #007bff; }
+        .method.delete { background: #dc3545; }
+        .endpoint-path { font-family: monospace; font-size: 14px; font-weight: 600; }
+        .endpoint-desc { color: #666; font-size: 13px; margin-bottom: 10px; }
+        .section-label { font-size: 11px; font-weight: 600; color: #666; margin: 10px 0 5px 0; text-transform: uppercase; }
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            line-height: 1.4;
+            overflow-x: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .code-block .kw { color: #569cd6; }
+        .code-block .type { color: #4ec9b0; }
+        .code-block .str { color: #ce9178; }
+        .code-block .prop { color: #9cdcfe; }
+        .code-block .cmt { color: #6a9955; }
+        .try-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
+        .try-section summary { cursor: pointer; font-weight: 600; font-size: 13px; color: #333; }
+        .try-section[open] summary { margin-bottom: 10px; }
+        .try-inputs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+        .try-inputs input, .try-inputs textarea {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .try-inputs textarea { min-height: 80px; resize: vertical; }
+        .try-inputs label { font-size: 12px; color: #666; margin-bottom: 2px; }
+        .try-btn {
+            padding: 8px 16px;
+            background: #000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .try-btn:hover { background: #333; }
+        .try-result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .try-result.error { background: #fee; color: #c00; }
+        .try-result.success { background: #efe; }
+        .try-time { font-size: 11px; color: #666; margin-top: 5px; }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -13,54 +102,374 @@
             <p>Personal Memory Management</p>
         </header>
 
-        <div class="main-content">
-            <!-- Configuration Panel -->
-            <div class="panel config-panel">
-                <h2>Configuration</h2>
-                <div class="form-group">
-                    <label for="apiUrl">API URL:</label>
-                    <input type="text" id="apiUrl" value="http://localhost:8888" placeholder="http://localhost:8888">
-                </div>
-                <div class="form-group">
-                    <label for="userId">User ID:</label>
-                    <input type="text" id="userId" value="test_user" placeholder="test_user">
-                </div>
-                <button onclick="testConnection()" class="btn btn-secondary">Test Connection</button>
-            </div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('app')">App</button>
+            <button class="tab-btn" onclick="showTab('docs')">API Docs</button>
+        </div>
 
-            <!-- Message Interface -->
-            <div class="panel chat-interface">
-                <h2>Send Message</h2>
-                <p class="panel-description">Type messages with personal information. The system will automatically extract and store long-term personal facts (name, preferences, role, etc.).</p>
-                <div class="chat-input-area">
-                    <div class="input-group">
-                        <input type="text" id="messageInput" placeholder="e.g., 'My name is Alice and I love Python'" onkeypress="handleKeyPress(event)">
-                        <button onclick="sendMessage()" class="btn btn-primary">Send</button>
+        <!-- App Tab -->
+        <div id="tab-app" class="tab-content active">
+            <div class="main-content">
+                <div class="panel config-panel">
+                    <h2>Configuration</h2>
+                    <div class="form-group">
+                        <label for="apiUrl">API URL:</label>
+                        <input type="text" id="apiUrl" value="http://localhost:8888" placeholder="http://localhost:8888">
                     </div>
-                    <div id="responseArea" class="response-area">
-                        <div class="info-text">Messages and extracted memories will appear here...</div>
+                    <div class="form-group">
+                        <label for="userId">User ID:</label>
+                        <input type="text" id="userId" value="test_user" placeholder="test_user">
                     </div>
+                    <button onclick="testConnection()" class="btn btn-secondary">Test Connection</button>
                 </div>
-            </div>
 
-            <!-- Memories Panel -->
-            <div class="panel memories-panel">
-                <h2>User Memories</h2>
-                <p class="panel-description">All stored personal memories for the current user. Click × to delete individual memories.</p>
-                <div class="button-group">
-                    <button onclick="loadMemories()" class="btn btn-secondary">Refresh</button>
-                    <button onclick="clearAllMemories()" class="btn btn-danger">Clear All</button>
+                <div class="panel chat-interface">
+                    <h2>Send Message</h2>
+                    <p class="panel-description">Type messages with personal information. The system will automatically extract and store long-term personal facts.</p>
+                    <div class="chat-input-area">
+                        <div class="input-group">
+                            <input type="text" id="messageInput" placeholder="e.g., 'My name is Alice and I love Python'" onkeypress="handleKeyPress(event)">
+                            <button onclick="sendMessage()" class="btn btn-primary">Send</button>
+                        </div>
+                        <div id="responseArea" class="response-area">
+                            <div class="info-text">Messages and extracted memories will appear here...</div>
+                        </div>
+                    </div>
                 </div>
-                <div id="memoriesList" class="memories-list">
-                    <div class="info-text">Loading memories...</div>
+
+                <div class="panel memories-panel">
+                    <h2>User Memories</h2>
+                    <p class="panel-description">All stored personal memories for the current user.</p>
+                    <div class="button-group">
+                        <button onclick="loadMemories()" class="btn btn-secondary">Refresh</button>
+                        <button onclick="clearAllMemories()" class="btn btn-danger">Clear All</button>
+                    </div>
+                    <div id="memoriesList" class="memories-list">
+                        <div class="info-text">Loading memories...</div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Status Bar -->
+        <!-- API Docs Tab -->
+        <div id="tab-docs" class="tab-content">
+            
+            <!-- POST /messages -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/messages</span>
+                </div>
+                <p class="endpoint-desc">Process a user message and extract personal information</p>
+                <div class="section-label">Request</div>
+                <div class="code-block">{
+  <span class="prop">"user_id"</span>: <span class="str">"string"</span>,
+  <span class="prop">"message"</span>: <span class="str">"string"</span>
+}</div>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"success"</span>: <span class="kw">boolean</span>,
+  <span class="prop">"memory_context"</span>: <span class="str">"string"</span>,
+  <span class="prop">"extracted_memories"</span>: [
+    {
+      <span class="prop">"field"</span>: <span class="str">"string"</span>,
+      <span class="prop">"value"</span>: <span class="str">"string | string[] | number"</span>,
+      <span class="prop">"event"</span>: <span class="str">"ADD" | "UPDATE" | "REMOVE"</span>
+    }
+  ],
+  <span class="prop">"message"</span>: <span class="str">"string"</span>,
+  <span class="prop">"response_time_ms"</span>: <span class="kw">number | null</span>
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-post-userid" value="test_user">
+                        <label>message</label>
+                        <input type="text" id="try-post-message" value="My name is John and I love Python">
+                    </div>
+                    <button class="try-btn" onclick="tryPostMessages()">Send Request</button>
+                    <div id="try-post-result"></div>
+                </details>
+            </div>
+
+            <!-- GET /users/{user_id}/memories -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/users/{user_id}/memories</span>
+                </div>
+                <p class="endpoint-desc">Get all memories for a user (formatted list)</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">[
+  {
+    <span class="prop">"id"</span>: <span class="str">"string"</span>,
+    <span class="prop">"memory"</span>: <span class="str">"string"</span>,
+    <span class="prop">"user_id"</span>: <span class="str">"string | null"</span>,
+    <span class="prop">"created_at"</span>: <span class="str">"string | null"</span>,
+    <span class="prop">"updated_at"</span>: <span class="str">"string | null"</span>
+  }
+]</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-get-memories-userid" value="test_user">
+                    </div>
+                    <button class="try-btn" onclick="tryGetMemories()">Send Request</button>
+                    <div id="try-get-memories-result"></div>
+                </details>
+            </div>
+
+            <!-- GET /users/{user_id}/memories/raw -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/users/{user_id}/memories/raw</span>
+                </div>
+                <p class="endpoint-desc">Get raw memories as JSON object (for backend integration)</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"user_id"</span>: <span class="str">"string"</span>,
+  <span class="prop">"memories"</span>: {
+    <span class="prop">"name"</span>: <span class="str">"John"</span>,
+    <span class="prop">"skills"</span>: [<span class="str">"Python"</span>],
+    <span class="prop">"age"</span>: <span class="kw">28</span>
+  }
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-get-raw-userid" value="test_user">
+                    </div>
+                    <button class="try-btn" onclick="tryGetRaw()">Send Request</button>
+                    <div id="try-get-raw-result"></div>
+                </details>
+            </div>
+
+            <!-- GET /users/{user_id}/memories/search -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/users/{user_id}/memories/search</span>
+                </div>
+                <p class="endpoint-desc">Search user memories by keyword</p>
+                <div class="section-label">Query Parameters</div>
+                <div class="code-block"><span class="prop">query</span>: <span class="str">string</span>  <span class="cmt">// required</span>
+<span class="prop">limit</span>: <span class="kw">number</span>  <span class="cmt">// optional, default: 5</span></div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-search-userid" value="test_user">
+                        <label>query</label>
+                        <input type="text" id="try-search-query" value="Python">
+                        <label>limit (optional)</label>
+                        <input type="number" id="try-search-limit" value="5">
+                    </div>
+                    <button class="try-btn" onclick="trySearch()">Send Request</button>
+                    <div id="try-search-result"></div>
+                </details>
+            </div>
+
+            <!-- GET /users/{user_id}/context -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/users/{user_id}/context</span>
+                </div>
+                <p class="endpoint-desc">Get complete context for a user</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"user_memories"</span>: [ ... ],
+  <span class="prop">"user_id"</span>: <span class="str">"string"</span>
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-context-userid" value="test_user">
+                    </div>
+                    <button class="try-btn" onclick="tryGetContext()">Send Request</button>
+                    <div id="try-context-result"></div>
+                </details>
+            </div>
+
+            <!-- DELETE /users/{user_id}/memories -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method delete">DELETE</span>
+                    <span class="endpoint-path">/users/{user_id}/memories</span>
+                </div>
+                <p class="endpoint-desc">Delete all memories for a user</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"message"</span>: <span class="str">"All memories deleted for user {user_id}"</span>
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-delete-all-userid" value="test_user">
+                    </div>
+                    <button class="try-btn" onclick="tryDeleteAll()">Send Request</button>
+                    <div id="try-delete-all-result"></div>
+                </details>
+            </div>
+
+            <!-- DELETE /memories/{memory_id} -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method delete">DELETE</span>
+                    <span class="endpoint-path">/memories/{memory_id}</span>
+                </div>
+                <p class="endpoint-desc">Delete a specific memory (memory_id format: {user_id}_{field})</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"message"</span>: <span class="str">"Memory {memory_id} deleted"</span>
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>memory_id (e.g., test_user_name)</label>
+                        <input type="text" id="try-delete-one-id" value="test_user_name">
+                    </div>
+                    <button class="try-btn" onclick="tryDeleteOne()">Send Request</button>
+                    <div id="try-delete-one-result"></div>
+                </details>
+            </div>
+
+            <!-- GET /health -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method get">GET</span>
+                    <span class="endpoint-path">/health</span>
+                </div>
+                <p class="endpoint-desc">Health check endpoint</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"status"</span>: <span class="str">"healthy"</span>,
+  <span class="prop">"timestamp"</span>: <span class="str">"2025-01-12T10:30:00.000Z"</span>,
+  <span class="prop">"service"</span>: <span class="str">"PersonalMem API"</span>
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <button class="try-btn" onclick="tryHealth()">Send Request</button>
+                    <div id="try-health-result"></div>
+                </details>
+            </div>
+
+            <!-- Error Response -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="endpoint-path">Error Response (All Endpoints)</span>
+                </div>
+                <p class="endpoint-desc">HTTP 4xx/5xx responses</p>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"detail"</span>: <span class="str">"Error message"</span>
+}
+
+<span class="cmt">// Status Codes: 404, 500, 503</span></div>
+            </div>
+
+        </div>
+
         <div id="statusBar" class="status-bar"></div>
     </div>
 
     <script src="/static/app.js"></script>
+    <script>
+        function showTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function getBaseUrl() {
+            return document.getElementById('apiUrl').value || 'http://localhost:8888';
+        }
+
+        async function apiCall(method, path, body = null) {
+            const start = performance.now();
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (body) options.body = JSON.stringify(body);
+                
+                const response = await fetch(getBaseUrl() + path, options);
+                const data = await response.json();
+                const time = Math.round(performance.now() - start);
+                
+                return { success: response.ok, data, time, status: response.status };
+            } catch (error) {
+                const time = Math.round(performance.now() - start);
+                return { success: false, data: { detail: error.message }, time, status: 0 };
+            }
+        }
+
+        function showResult(elementId, result) {
+            const el = document.getElementById(elementId);
+            el.className = 'try-result ' + (result.success ? 'success' : 'error');
+            el.innerHTML = `<div class="try-time">Status: ${result.status} | Time: ${result.time}ms</div>` +
+                JSON.stringify(result.data, null, 2);
+        }
+
+        async function tryPostMessages() {
+            const userId = document.getElementById('try-post-userid').value;
+            const message = document.getElementById('try-post-message').value;
+            const result = await apiCall('POST', '/messages', { user_id: userId, message });
+            showResult('try-post-result', result);
+        }
+
+        async function tryGetMemories() {
+            const userId = document.getElementById('try-get-memories-userid').value;
+            const result = await apiCall('GET', `/users/${userId}/memories`);
+            showResult('try-get-memories-result', result);
+        }
+
+        async function tryGetRaw() {
+            const userId = document.getElementById('try-get-raw-userid').value;
+            const result = await apiCall('GET', `/users/${userId}/memories/raw`);
+            showResult('try-get-raw-result', result);
+        }
+
+        async function trySearch() {
+            const userId = document.getElementById('try-search-userid').value;
+            const query = document.getElementById('try-search-query').value;
+            const limit = document.getElementById('try-search-limit').value;
+            const result = await apiCall('GET', `/users/${userId}/memories/search?query=${encodeURIComponent(query)}&limit=${limit}`);
+            showResult('try-search-result', result);
+        }
+
+        async function tryGetContext() {
+            const userId = document.getElementById('try-context-userid').value;
+            const result = await apiCall('GET', `/users/${userId}/context`);
+            showResult('try-context-result', result);
+        }
+
+        async function tryDeleteAll() {
+            if (!confirm('Delete all memories for this user?')) return;
+            const userId = document.getElementById('try-delete-all-userid').value;
+            const result = await apiCall('DELETE', `/users/${userId}/memories`);
+            showResult('try-delete-all-result', result);
+        }
+
+        async function tryDeleteOne() {
+            if (!confirm('Delete this memory?')) return;
+            const memoryId = document.getElementById('try-delete-one-id').value;
+            const result = await apiCall('DELETE', `/memories/${encodeURIComponent(memoryId)}`);
+            showResult('try-delete-one-result', result);
+        }
+
+        async function tryHealth() {
+            const result = await apiCall('GET', '/health');
+            showResult('try-health-result', result);
+        }
+    </script>
 </body>
 </html>
