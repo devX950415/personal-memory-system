@@ -27,14 +27,14 @@ async function testConnection() {
     try {
         const response = await fetch(`${getApiUrl()}/health`);
         if (response.ok) {
-            showStatus('✅ API connection successful', 'success');
+            showStatus('API connection successful', 'success');
             return true;
         } else {
-            showStatus('❌ API connection failed', 'error');
+            showStatus('API connection failed', 'error');
             return false;
         }
     } catch (error) {
-        showStatus('❌ Cannot connect to API. Make sure the server is running.', 'error');
+        showStatus('Cannot connect to API. Make sure the server is running.', 'error');
         return false;
     }
 }
@@ -89,7 +89,7 @@ async function sendMessage() {
             const addedCount = data.extracted_memories.filter(m => m.event !== 'REMOVE').length;
             const removedCount = data.extracted_memories.filter(m => m.event === 'REMOVE').length;
             
-            let statusMsg = '✅ Memory updated: ';
+            let statusMsg = 'Memory updated: ';
             if (addedCount > 0) statusMsg += `${addedCount} added`;
             if (addedCount > 0 && removedCount > 0) statusMsg += ', ';
             if (removedCount > 0) statusMsg += `${removedCount} removed`;
@@ -98,12 +98,12 @@ async function sendMessage() {
             showStatus(statusMsg, 'success');
             loadMemories(); // Refresh memories
         } else {
-            showStatus(`✅ Message processed (no personal info) (${responseTime}ms)`, 'success');
+            showStatus(`Message processed (no personal info) (${responseTime}ms)`, 'success');
         }
         
     } catch (error) {
         const responseTime = Math.round(performance.now() - startTime);
-        showStatus(`❌ Error: ${error.message} (${responseTime}ms)`, 'error');
+        showStatus(`Error: ${error.message} (${responseTime}ms)`, 'error');
     }
 }
 
@@ -197,11 +197,11 @@ async function loadMemories() {
         
         const memories = await response.json();
         displayMemories(memories);
-        showStatus(`✅ Loaded ${memories.length} memories (${responseTime}ms)`, 'success');
+        showStatus(`Loaded ${memories.length} memories (${responseTime}ms)`, 'success');
         
     } catch (error) {
         const responseTime = Math.round(performance.now() - startTime);
-        showStatus(`❌ Error loading memories: ${error.message} (${responseTime}ms)`, 'error');
+        showStatus(`Error loading memories: ${error.message} (${responseTime}ms)`, 'error');
     }
 }
 
@@ -262,11 +262,11 @@ async function clearAllMemories() {
             throw new Error(`HTTP ${response.status}`);
         }
         
-        showStatus('✅ All memories deleted', 'success');
+        showStatus('All memories deleted', 'success');
         loadMemories();
         
     } catch (error) {
-        showStatus(`❌ Error deleting memories: ${error.message}`, 'error');
+        showStatus(`Error deleting memories: ${error.message}`, 'error');
     }
 }
 
@@ -292,11 +292,11 @@ async function deleteMemory(memoryId) {
             throw new Error(error.detail || `HTTP ${response.status}`);
         }
         
-        showStatus('✅ Memory deleted', 'success');
+        showStatus('Memory deleted', 'success');
         loadMemories(); // Refresh the list
         
     } catch (error) {
-        showStatus(`❌ Error deleting memory: ${error.message}`, 'error');
+        showStatus(`Error deleting memory: ${error.message}`, 'error');
     }
 }
 
