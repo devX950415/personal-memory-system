@@ -342,28 +342,43 @@ CRITICAL:
         # Process removals
         for field_name, items_to_remove in removals_to_process.items():
             logger.info(f"Processing removal: {field_name} -> {items_to_remove}")
-            if field_name in merged and isinstance(merged[field_name], list):
-                original_count = len(merged[field_name])
-                # Normalize items to remove for comparison
-                items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
-                logger.debug(f"Items to remove (normalized): {items_to_remove_normalized}")
-                logger.debug(f"Current {field_name} before removal: {merged[field_name]}")
-                
-                # Remove items (case-insensitive comparison)
-                merged[field_name] = [
-                    item for item in merged[field_name]
-                    if normalize_item(item) not in items_to_remove_normalized
-                ]
-                
-                removed_count = original_count - len(merged[field_name])
-                logger.info(f"Removed {removed_count} items from {field_name}: {items_to_remove}. Remaining: {merged[field_name]}")
-                
-                # Clean up empty lists
-                if not merged[field_name]:
-                    del merged[field_name]
-                    logger.info(f"Deleted empty {field_name} field")
+            if field_name in merged:
+                if isinstance(merged[field_name], list):
+                    # Handle list field removal
+                    original_count = len(merged[field_name])
+                    # Normalize items to remove for comparison
+                    items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
+                    logger.debug(f"Items to remove (normalized): {items_to_remove_normalized}")
+                    logger.debug(f"Current {field_name} before removal: {merged[field_name]}")
+                    
+                    # Remove items (case-insensitive comparison)
+                    merged[field_name] = [
+                        item for item in merged[field_name]
+                        if normalize_item(item) not in items_to_remove_normalized
+                    ]
+                    
+                    removed_count = original_count - len(merged[field_name])
+                    logger.info(f"Removed {removed_count} items from {field_name}: {items_to_remove}. Remaining: {merged[field_name]}")
+                    
+                    # Clean up empty lists
+                    if not merged[field_name]:
+                        del merged[field_name]
+                        logger.info(f"Deleted empty {field_name} field")
+                else:
+                    # Handle string/non-list field removal
+                    # Check if the current value matches any of the items to remove
+                    current_value = merged[field_name]
+                    current_value_normalized = normalize_item(current_value)
+                    items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
+                    
+                    if current_value_normalized in items_to_remove_normalized:
+                        # Current value matches - delete the entire field
+                        del merged[field_name]
+                        logger.info(f"Deleted {field_name} field (value matched: {current_value})")
+                    else:
+                        logger.warning(f"Cannot remove from {field_name}: current value '{current_value}' does not match any items to remove: {items_to_remove}")
             else:
-                logger.warning(f"Cannot remove from {field_name}: field not found or not a list. Current merged: {merged}")
+                logger.warning(f"Cannot remove from {field_name}: field not found in current memories")
         
         # Step 2: Resolve conflicts for additions (before merging)
         for key, value in normal_updates.items():

@@ -20,13 +20,13 @@ from config import config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app_api = FastAPI(
+app = FastAPI(
     title="PersonalMem API",
     description="Personalized User Memory System - Memory Only",
     version="2.0.0"
 )
 
-app_api.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -43,9 +43,9 @@ except Exception as e:
     personal_mem_app = None
 
 # Mount static files for the frontend
-app_api.mount("/static", StaticFiles(directory="frontend"), name="static")
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
-@app_api.get("/", include_in_schema=False)
+@app.get("/", include_in_schema=False)
 async def redirect_to_frontend():
     return RedirectResponse(url="/static/index.html")
 
@@ -78,7 +78,7 @@ class MemoryInfo(BaseModel):
 # Health Check
 # ============================================================================
 
-@app_api.get("/health")
+@app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {
@@ -92,7 +92,7 @@ async def health_check():
 # Message Processing
 # ============================================================================
 
-@app_api.post("/messages", response_model=SendMessageResponse)
+@app.post("/messages", response_model=SendMessageResponse)
 async def send_message(request: SendMessageRequest):
     """
     Process a user message.
@@ -133,7 +133,7 @@ async def send_message(request: SendMessageRequest):
 # Memory Management
 # ============================================================================
 
-@app_api.get("/users/{user_id}/memories", response_model=List[MemoryInfo])
+@app.get("/users/{user_id}/memories", response_model=List[MemoryInfo])
 async def get_user_memories(user_id: str):
     """Get all memories for a user"""
     if personal_mem_app is None:
@@ -162,7 +162,7 @@ async def get_user_memories(user_id: str):
         )
 
 
-@app_api.get("/users/{user_id}/memories/search")
+@app.get("/users/{user_id}/memories/search")
 async def search_memories(user_id: str, query: str, limit: int = 5):
     """Search user memories with semantic similarity"""
     try:
@@ -185,7 +185,7 @@ async def search_memories(user_id: str, query: str, limit: int = 5):
         )
 
 
-@app_api.delete("/users/{user_id}/memories")
+@app.delete("/users/{user_id}/memories")
 async def delete_all_memories(user_id: str):
     """Delete all memories for a user"""
     try:
@@ -205,7 +205,7 @@ async def delete_all_memories(user_id: str):
         )
 
 
-@app_api.delete("/memories/{memory_id}")
+@app.delete("/memories/{memory_id}")
 async def delete_memory(memory_id: str):
     """Delete a specific memory"""
     try:
@@ -229,7 +229,7 @@ async def delete_memory(memory_id: str):
 # Context Retrieval
 # ============================================================================
 
-@app_api.get("/users/{user_id}/context")
+@app.get("/users/{user_id}/context")
 async def get_user_context(user_id: str):
     """Get complete context for a user (all memories)"""
     try:
@@ -252,7 +252,7 @@ if __name__ == "__main__":
     config.validate()
     
     uvicorn.run(
-        "api:app_api",
+        "api:app",
         host="0.0.0.0",
         port=8888,
         reload=True
