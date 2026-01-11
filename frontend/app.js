@@ -56,6 +56,8 @@ async function sendMessage() {
     
     showStatus('Processing message...', 'info');
     
+    const startTime = performance.now();
+    
     try {
         const response = await fetch(`${getApiUrl()}/messages`, {
             method: 'POST',
@@ -68,19 +70,21 @@ async function sendMessage() {
             })
         });
         
+        const responseTime = Math.round(performance.now() - startTime);
+        
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         
         const data = await response.json();
         
-        // Display response
-        displayResponse(message, data);
+        // Display response with timing
+        displayResponse(message, data, responseTime);
         
         // Clear input
         messageInput.value = '';
         
-        // Show status
+        // Show status with timing
         if (data.extracted_memories && data.extracted_memories.length > 0) {
             const addedCount = data.extracted_memories.filter(m => m.event !== 'REMOVE').length;
             const removedCount = data.extracted_memories.filter(m => m.event === 'REMOVE').length;
@@ -89,19 +93,21 @@ async function sendMessage() {
             if (addedCount > 0) statusMsg += `${addedCount} added`;
             if (addedCount > 0 && removedCount > 0) statusMsg += ', ';
             if (removedCount > 0) statusMsg += `${removedCount} removed`;
+            statusMsg += ` (${responseTime}ms)`;
             
             showStatus(statusMsg, 'success');
             loadMemories(); // Refresh memories
         } else {
-            showStatus('✅ Message processed (no personal info)', 'success');
+            showStatus(`✅ Message processed (no personal info) (${responseTime}ms)`, 'success');
         }
         
     } catch (error) {
-        showStatus(`❌ Error: ${error.message}`, 'error');
+        const responseTime = Math.round(performance.now() - startTime);
+        showStatus(`❌ Error: ${error.message} (${responseTime}ms)`, 'error');
     }
 }
 
-function displayResponse(message, data) {
+function displayResponse(message, data, responseTime) {
     const responseArea = document.getElementById('responseArea');
     
     // Clear placeholder if it exists
@@ -113,7 +119,7 @@ function displayResponse(message, data) {
     const responseDiv = document.createElement('div');
     responseDiv.className = 'response-item';
     
-    let html = `<div class="response-message"><strong>Your Message:</strong> "${escapeHtml(message)}"</div>`;
+    let html = `<div class="response-message"><strong>Your Message:</strong> "${escapeHtml(message)}" <span class="response-time">(${responseTime}ms)</span></div>`;
     
     if (data.extracted_memories && data.extracted_memories.length > 0) {
         const additions = data.extracted_memories.filter(m => m.event !== 'REMOVE');
@@ -178,8 +184,12 @@ async function loadMemories() {
     
     showStatus('Loading memories...', 'info');
     
+    const startTime = performance.now();
+    
     try {
         const response = await fetch(`${getApiUrl()}/users/${userId}/memories`);
+        
+        const responseTime = Math.round(performance.now() - startTime);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -187,10 +197,11 @@ async function loadMemories() {
         
         const memories = await response.json();
         displayMemories(memories);
-        showStatus(`✅ Loaded ${memories.length} memories`, 'success');
+        showStatus(`✅ Loaded ${memories.length} memories (${responseTime}ms)`, 'success');
         
     } catch (error) {
-        showStatus(`❌ Error loading memories: ${error.message}`, 'error');
+        const responseTime = Math.round(performance.now() - startTime);
+        showStatus(`❌ Error loading memories: ${error.message} (${responseTime}ms)`, 'error');
     }
 }
 

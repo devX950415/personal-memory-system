@@ -161,6 +161,7 @@ EXTRACT (permanent attributes only):
 - dislikes: Things user dislikes (as list)
 - location: Where user is from or lives
 - languages: Languages user speaks (as list)
+- and other personal information that is long-term and permanent such as habbit, regular rules and so on
 
 CRITICAL REMOVAL RULES - READ CAREFULLY:
 When user says something NEGATIVE about an item that EXISTS in current memories, you MUST use "remove_" prefix:
