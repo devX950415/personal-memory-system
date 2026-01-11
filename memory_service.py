@@ -205,90 +205,42 @@ class MemoryService:
         - updates: Dict of memory updates
         - changes: List of changes made
         """
-        system_prompt = """You are a memory extraction system. Extract ONLY long-term, permanent personal information.
+        system_prompt = """Extract ALL personal info from user messages. Return JSON only.
 
-EXTRACT (permanent attributes only):
-- name: User's full name
-- role: Profession/job title (e.g., "software engineer", "teacher")
-- stack: Technical stack or specialty (e.g., "frontend", "backend", "full-stack")
-- skills: List of skills/expertise (e.g., ["Python", "JavaScript"])
-- preferences: Long-term preferences
-- likes: Things user likes (as list)
-- dislikes: Things user dislikes (as list)
-- location: Where user is from or lives
-- languages: Languages user speaks (as list)
-- and other personal information that is long-term and permanent such as habbit, regular rules and so on
+IDENTITY: name, nickname, age, birthday, gender, nationality, ethnicity
+LOCATION: location, hometown, timezone, address
+WORK: role, company, industry, experience_years, stack, skills[], certifications[], education, career_goals[]
+PREFERENCES: likes[], dislikes[], hobbies[], interests[], favorite_foods[], favorite_music[], favorite_movies[], favorite_books[], favorite_games[], favorite_sports[]
+LIFESTYLE: diet, exercise, sleep_schedule, work_style, communication_style, morning_person
+RELATIONSHIPS: family[], pets[], relationship_status, partner_name, children[]
+LANGUAGES: languages[], native_language, learning_languages[]
+HEALTH: allergies[], health_conditions[], disabilities[]
+PERSONALITY: personality_traits[], values[], life_goals[], fears[], strengths[], weaknesses[]
+FINANCE: income_range, financial_goals[]
+OTHER: habits[], routines[], memorable_facts[], achievements[], travel_history[], bucket_list[]
 
-CRITICAL REMOVAL RULES - READ CAREFULLY:
-When user says something NEGATIVE about an item that EXISTS in current memories, you MUST use "remove_" prefix:
+RULES:
+- Extract EVERYTHING personal mentioned
+- Lists use arrays: {"skills": ["Python", "Java"]}
+- Single values use strings: {"name": "John"}
+- Negative statements use "remove_" prefix: {"remove_skills": ["React"]}
+- Create new fields if needed for unique info
+- Skip: temporary states, current tasks, questions without personal info
 
-1. SKILLS REMOVAL - Use "remove_skills" when user says:
-   - "I am not good at X" → {"remove_skills": ["X"]}
-   - "I don't know X" → {"remove_skills": ["X"]}
-   - "I'm bad at X" → {"remove_skills": ["X"]}
-   - "I no longer use X" → {"remove_skills": ["X"]}
-   - "I forgot X" → {"remove_skills": ["X"]}
-   - "I stopped using X" → {"remove_skills": ["X"]}
+EXAMPLES:
+{"name": "John", "age": 28, "birthday": "March 15"}
+{"role": "developer", "company": "Google", "skills": ["Python"], "experience_years": 5}
+{"likes": ["pizza", "hiking"], "dislikes": ["tomatoes"], "hobbies": ["hiking", "reading"]}
+{"pets": ["dog named Max"], "family": ["wife Sarah", "son aged 3"]}
+{"languages": ["English", "Spanish"], "learning_languages": ["Japanese"]}
+{"diet": "vegetarian", "allergies": ["nuts", "shellfish"]}
+{"remove_skills": ["Java"]} (when user says "I forgot Java")
 
-2. LIKES REMOVAL - Use "remove_likes" when user says:
-   - "I don't like X anymore" → {"remove_likes": ["X"]}
-   - "I hate X" (when X is in likes) → {"remove_likes": ["X"], "dislikes": ["X"]}
-   - "I dislike X" (when X is in likes) → {"remove_likes": ["X"], "dislikes": ["X"]}
+Return {} if no personal info found."""
 
-3. ADDITIONS: If user mentions something positive, add to appropriate list
-   - "I love X" → add to "likes"
-   - "I know X", "I'm good at X", "I use X" → add to "skills"
-   - "I like X" → add to "likes"
-
-4. CONFLICTS:
-   - If user says they like something, put it in "likes" (NOT "dislikes")
-   - If user says they hate/dislike something, put it in "dislikes" (NOT "likes")
-   - When removing from one list due to negative statement, check if it should be added to opposite list
-
-5. FORMAT FOR REMOVALS - CRITICAL:
-   - ALWAYS use "remove_" prefix for removals: "remove_skills", "remove_likes", etc.
-   - The value MUST be a list: {"remove_skills": ["React"]} NOT {"remove_skills": "React"}
-   - Check current memories to see if the item exists before removing
-
-DO NOT EXTRACT:
-- Temporary activities (e.g., "doing homework", "watching TV")
-- Short-term plans (e.g., "going tomorrow", "meeting next week")
-- Current states (e.g., "is tired", "is busy")
-- Time-bound information
-- Task-specific requests
-
-Output ONLY updates as JSON object. For additions, use normal field names. For removals, ALWAYS use "remove_" prefix.
-If no permanent information found, return empty object {}
-
-Examples:
-- "My name is John" → {"name": "John"}
-- "I'm a frontend developer" → {"role": "frontend developer", "stack": "frontend"}
-- "I like pizza and hate tomatoes" → {"likes": ["pizza"], "dislikes": ["tomatoes"]}
-- "I love Python" → {"likes": ["Python"]}
-- "I am not good at React" (when current memories have skills: ["React", "Vue"]) → {"remove_skills": ["React"]}
-- "I don't know JavaScript anymore" → {"remove_skills": ["JavaScript"]}
-- "I hate tomatoes" (when current memories have likes: ["tomatoes"]) → {"remove_likes": ["tomatoes"], "dislikes": ["tomatoes"]}
-- "I'm doing homework" → {} (temporary activity, ignore)"""
-
-        user_prompt = f"""Current memories: {json.dumps(current_memories, indent=2)}
-
-New message: "{message}"
-
-IMPORTANT: Check current memories above to see if user is REMOVING something they previously had.
-
-REMOVAL DETECTION:
-1. If current memories have "skills": ["X", "Y"] and user says "I am not good at X" or "I don't know X", return: {{"remove_skills": ["X"]}}
-2. If current memories have "likes": ["X", "Y"] and user says "I hate X" or "I don't like X", return: {{"remove_likes": ["X"], "dislikes": ["X"]}}
-3. Compare the message with current memories - if user mentions something negative about an existing item, REMOVE it.
-
-ADDITION DETECTION:
-- For new positive information, use normal field names: {{"skills": ["Z"], "likes": ["W"]}}
-
-CRITICAL: 
-- For removals, ALWAYS use "remove_" prefix followed by field name
-- Value MUST be a list: ["X"] not "X"
-- Check if items exist in current memories before removing
-- Return empty {{}} if nothing to extract."""
+        user_prompt = f"""Memories: {json.dumps(current_memories) if current_memories else "{}"}
+Message: "{message}"
+Extract ALL personal info as JSON:"""
 
         try:
             response = self.llm_client.chat.completions.create(

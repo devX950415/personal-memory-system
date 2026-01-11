@@ -64,6 +64,7 @@ class SendMessageResponse(BaseModel):
     memory_context: str
     extracted_memories: List[Dict[str, Any]]
     message: str = "Message processed successfully"
+    response_time_ms: Optional[int] = None
 
 
 class MemoryInfo(BaseModel):
@@ -100,6 +101,9 @@ async def send_message(request: SendMessageRequest):
     Memory extraction is automatic - the LLM analyzes every message to determine
     if it contains long-term personal information (name, preferences, etc).
     """
+    import time
+    start_time = time.time()
+    
     if personal_mem_app is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -112,10 +116,13 @@ async def send_message(request: SendMessageRequest):
             message=request.message
         )
         
+        response_time_ms = int((time.time() - start_time) * 1000)
+        
         return SendMessageResponse(
             success=True,
             memory_context=result['memory_context'],
-            extracted_memories=result['extracted_memories']
+            extracted_memories=result['extracted_memories'],
+            response_time_ms=response_time_ms
         )
     except ConnectionError as e:
         raise HTTPException(
@@ -239,6 +246,31 @@ async def get_user_context(user_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving context: {str(e)}"
+        )
+
+
+@app.get("/users/{user_id}/memories/raw")
+async def get_raw_memories(user_id: str):
+    """
+    Get raw memories as JSON object (for backend integration).
+    Returns the memories directly as key-value pairs without formatting.
+    """
+    if personal_mem_app is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available."
+        )
+    
+    try:
+        memories = personal_mem_app.memory_service.get_user_memories(user_id)
+        return {
+            "user_id": user_id,
+            "memories": memories
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving memories: {str(e)}"
         )
 
 
