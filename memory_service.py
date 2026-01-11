@@ -15,7 +15,7 @@ from openai import AzureOpenAI, OpenAI
 
 from config import config
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=config.get_log_level())
 logger = logging.getLogger(__name__)
 
 
@@ -106,28 +106,35 @@ class MemoryService:
         try:
             # Get current memories
             current_memories = self.get_user_memories(user_id)
+            logger.debug(f"Current memories for {user_id}: {current_memories}")
             
             # Extract new information using LLM
             extraction_result = self._extract_structured_memories(message, current_memories)
+            logger.debug(f"Extraction result: {extraction_result}")
             
             if not extraction_result or not extraction_result.get("updates"):
                 logger.info(f"No memory updates for user {user_id}")
                 return []
             
+            updates = extraction_result.get("updates", {})
+            logger.info(f"Extracted updates: {updates}")
+            
             # Merge updates into current memories
-            updated_memories = self._merge_memories(current_memories, extraction_result["updates"])
+            updated_memories = self._merge_memories(current_memories, updates)
+            logger.info(f"Merged memories: {updated_memories}")
             
             # Save to database
             self._save_memories(user_id, updated_memories)
+            logger.info(f"Saved memories to database for user {user_id}")
             
             # Format response
             changes = extraction_result.get("changes", [])
-            logger.info(f"Updated {len(changes)} memory fields for user {user_id}")
+            logger.info(f"Updated {len(changes)} memory fields for user {user_id}: {[c.get('field') + ' (' + c.get('event') + ')' for c in changes]}")
             
             return changes
             
         except Exception as e:
-            logger.error(f"Error adding memory: {e}")
+            logger.error(f"Error adding memory: {e}", exc_info=True)
             return []
     
     def _extract_structured_memories(
@@ -155,25 +162,36 @@ EXTRACT (permanent attributes only):
 - location: Where user is from or lives
 - languages: Languages user speaks (as list)
 
-IMPORTANT RULES:
-1. ADDITIONS: If user mentions something positive, add to appropriate list
+CRITICAL REMOVAL RULES - READ CAREFULLY:
+When user says something NEGATIVE about an item that EXISTS in current memories, you MUST use "remove_" prefix:
+
+1. SKILLS REMOVAL - Use "remove_skills" when user says:
+   - "I am not good at X" → {"remove_skills": ["X"]}
+   - "I don't know X" → {"remove_skills": ["X"]}
+   - "I'm bad at X" → {"remove_skills": ["X"]}
+   - "I no longer use X" → {"remove_skills": ["X"]}
+   - "I forgot X" → {"remove_skills": ["X"]}
+   - "I stopped using X" → {"remove_skills": ["X"]}
+
+2. LIKES REMOVAL - Use "remove_likes" when user says:
+   - "I don't like X anymore" → {"remove_likes": ["X"]}
+   - "I hate X" (when X is in likes) → {"remove_likes": ["X"], "dislikes": ["X"]}
+   - "I dislike X" (when X is in likes) → {"remove_likes": ["X"], "dislikes": ["X"]}
+
+3. ADDITIONS: If user mentions something positive, add to appropriate list
    - "I love X" → add to "likes"
    - "I know X", "I'm good at X", "I use X" → add to "skills"
    - "I like X" → add to "likes"
 
-2. REMOVALS: If user says something negative about an item that exists in current memories, use special format:
-   - "I am not good at X", "I don't know X", "I'm bad at X" → {"remove_skills": ["X"]}
-   - "I hate X", "I dislike X", "I don't like X" → {"remove_likes": ["X"]} and/or {"dislikes": ["X"]}
-   - "I no longer use X" → {"remove_skills": ["X"]}
-
-3. CONFLICTS:
+4. CONFLICTS:
    - If user says they like something, put it in "likes" (NOT "dislikes")
    - If user says they hate/dislike something, put it in "dislikes" (NOT "likes")
    - When removing from one list due to negative statement, check if it should be added to opposite list
 
-4. FORMAT FOR REMOVALS:
-   Use keys with "remove_" prefix followed by the field name (e.g., "remove_skills", "remove_likes")
-   The value should be a list of items to remove from that field.
+5. FORMAT FOR REMOVALS - CRITICAL:
+   - ALWAYS use "remove_" prefix for removals: "remove_skills", "remove_likes", etc.
+   - The value MUST be a list: {"remove_skills": ["React"]} NOT {"remove_skills": "React"}
+   - Check current memories to see if the item exists before removing
 
 DO NOT EXTRACT:
 - Temporary activities (e.g., "doing homework", "watching TV")
@@ -182,7 +200,7 @@ DO NOT EXTRACT:
 - Time-bound information
 - Task-specific requests
 
-Output ONLY updates as JSON object. For additions, use normal field names. For removals, use "remove_" prefix.
+Output ONLY updates as JSON object. For additions, use normal field names. For removals, ALWAYS use "remove_" prefix.
 If no permanent information found, return empty object {}
 
 Examples:
@@ -190,21 +208,29 @@ Examples:
 - "I'm a frontend developer" → {"role": "frontend developer", "stack": "frontend"}
 - "I like pizza and hate tomatoes" → {"likes": ["pizza"], "dislikes": ["tomatoes"]}
 - "I love Python" → {"likes": ["Python"]}
-- "I am not good at React" (when skills: ["React", "Vue"]) → {"remove_skills": ["React"]}
+- "I am not good at React" (when current memories have skills: ["React", "Vue"]) → {"remove_skills": ["React"]}
 - "I don't know JavaScript anymore" → {"remove_skills": ["JavaScript"]}
-- "I hate tomatoes" (when likes: ["tomatoes"]) → {"remove_likes": ["tomatoes"], "dislikes": ["tomatoes"]}
+- "I hate tomatoes" (when current memories have likes: ["tomatoes"]) → {"remove_likes": ["tomatoes"], "dislikes": ["tomatoes"]}
 - "I'm doing homework" → {} (temporary activity, ignore)"""
 
         user_prompt = f"""Current memories: {json.dumps(current_memories, indent=2)}
 
 New message: "{message}"
 
-Extract ONLY permanent personal information as JSON updates.
-- Check current memories to see if user is removing something they previously had
-- If user says "I am not good at X" or "I don't know X" and X is in current "skills", use "remove_skills": ["X"]
-- If user says "I don't like X" or "I hate X" and X is in current "likes", use "remove_likes": ["X"]
-- For additions, use normal field names (e.g., "skills": ["Y"], "likes": ["Z"])
-- For removals, use "remove_" prefix (e.g., "remove_skills": ["X"], "remove_likes": ["Y"])
+IMPORTANT: Check current memories above to see if user is REMOVING something they previously had.
+
+REMOVAL DETECTION:
+1. If current memories have "skills": ["X", "Y"] and user says "I am not good at X" or "I don't know X", return: {{"remove_skills": ["X"]}}
+2. If current memories have "likes": ["X", "Y"] and user says "I hate X" or "I don't like X", return: {{"remove_likes": ["X"], "dislikes": ["X"]}}
+3. Compare the message with current memories - if user mentions something negative about an existing item, REMOVE it.
+
+ADDITION DETECTION:
+- For new positive information, use normal field names: {{"skills": ["Z"], "likes": ["W"]}}
+
+CRITICAL: 
+- For removals, ALWAYS use "remove_" prefix followed by field name
+- Value MUST be a list: ["X"] not "X"
+- Check if items exist in current memories before removing
 - Return empty {{}} if nothing to extract."""
 
         try:
@@ -219,10 +245,19 @@ Extract ONLY permanent personal information as JSON updates.
             )
             
             result_text = response.choices[0].message.content
+            logger.debug(f"LLM raw response: {result_text}")
             updates = json.loads(result_text)
+            logger.info(f"Parsed updates from LLM: {updates}")
             
             if not updates:
                 return {"updates": {}, "changes": []}
+            
+            # Validate removal format
+            for key in updates.keys():
+                if key.startswith("remove_"):
+                    if not isinstance(updates[key], list):
+                        logger.warning(f"Removal value for {key} is not a list, converting: {updates[key]}")
+                        updates[key] = [updates[key]] if updates[key] else []
             
             # Build list of changes for response
             changes = []
@@ -306,18 +341,29 @@ Extract ONLY permanent personal information as JSON updates.
         
         # Process removals
         for field_name, items_to_remove in removals_to_process.items():
+            logger.info(f"Processing removal: {field_name} -> {items_to_remove}")
             if field_name in merged and isinstance(merged[field_name], list):
+                original_count = len(merged[field_name])
                 # Normalize items to remove for comparison
                 items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
+                logger.debug(f"Items to remove (normalized): {items_to_remove_normalized}")
+                logger.debug(f"Current {field_name} before removal: {merged[field_name]}")
+                
                 # Remove items (case-insensitive comparison)
                 merged[field_name] = [
                     item for item in merged[field_name]
                     if normalize_item(item) not in items_to_remove_normalized
                 ]
+                
+                removed_count = original_count - len(merged[field_name])
+                logger.info(f"Removed {removed_count} items from {field_name}: {items_to_remove}. Remaining: {merged[field_name]}")
+                
                 # Clean up empty lists
                 if not merged[field_name]:
                     del merged[field_name]
-                logger.info(f"Removed {len(items_to_remove)} items from {field_name}: {items_to_remove}")
+                    logger.info(f"Deleted empty {field_name} field")
+            else:
+                logger.warning(f"Cannot remove from {field_name}: field not found or not a list. Current merged: {merged}")
         
         # Step 2: Resolve conflicts for additions (before merging)
         for key, value in normal_updates.items():
@@ -367,6 +413,7 @@ Extract ONLY permanent personal information as JSON updates.
     
     def _save_memories(self, user_id: str, memories: Dict[str, Any]):
         """Save memories to PostgreSQL"""
+        logger.debug(f"Saving memories for {user_id}: {memories}")
         conn = self._get_connection()
         with conn.cursor() as cur:
             cur.execute("""
@@ -377,6 +424,7 @@ Extract ONLY permanent personal information as JSON updates.
                     memories = %s,
                     updated_at = now()
             """, (user_id, Json(memories), Json(memories)))
+            logger.info(f"Successfully saved memories to database for user {user_id}")
     
     def get_user_memories(self, user_id: str) -> Dict[str, Any]:
         """

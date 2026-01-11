@@ -2,6 +2,7 @@
 Configuration management for PersonalMem
 """
 import os
+import logging
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -28,6 +29,18 @@ class Config:
     
     # Application Settings
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    
+    @classmethod
+    def get_log_level(cls) -> int:
+        """Get log level as logging constant"""
+        level_map = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL
+        }
+        return level_map.get(cls.LOG_LEVEL.upper(), logging.INFO)
     
     @classmethod
     def is_azure_openai(cls) -> bool:
