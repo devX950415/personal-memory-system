@@ -123,7 +123,7 @@
                         <label for="userId">User ID:</label>
                         <input type="text" id="userId" value="test_user" placeholder="test_user">
                     </div>
-                    <button onclick="testConnection()" class="btn btn-secondary">Test Connection</button>
+                    <button onclick="testConnection()" class="btn btn-secondary" title="GET /health">Test Connection</button>
                 </div>
 
                 <div class="panel chat-interface">
@@ -132,7 +132,7 @@
                     <div class="chat-input-area">
                         <div class="input-group">
                             <input type="text" id="messageInput" placeholder="e.g., 'My name is Alice and I love Python'" onkeypress="handleKeyPress(event)">
-                            <button onclick="sendMessage()" class="btn btn-primary">Send</button>
+                            <button onclick="sendMessage()" class="btn btn-primary" title="POST /messages">Send</button>
                         </div>
                         <div id="responseArea" class="response-area">
                             <div class="info-text">Messages and extracted memories will appear here...</div>
@@ -144,8 +144,8 @@
                     <h2>User Memories</h2>
                     <p class="panel-description">All stored personal memories for the current user.</p>
                     <div class="button-group">
-                        <button onclick="loadMemories()" class="btn btn-secondary">Refresh</button>
-                        <button onclick="clearAllMemories()" class="btn btn-danger">Clear All</button>
+                        <button onclick="loadMemories()" class="btn btn-secondary" title="GET /users/{user_id}/memories/raw">Refresh</button>
+                        <button onclick="clearAllMemories()" class="btn btn-danger" title="DELETE /users/{user_id}/memories">Clear All</button>
                     </div>
                     <div id="memoriesList" class="memories-list">
                         <div class="info-text">Loading memories...</div>
@@ -354,7 +354,7 @@
         <div id="statusBar" class="status-bar"></div>
     </div>
 
-    <script src="/static/app.js?v=3"></script>
+    <script src="/static/app.js?v=7"></script>
     <script>
         function showTab(tab) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));

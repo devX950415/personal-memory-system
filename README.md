@@ -1,10 +1,6 @@
 # PersonalMem
 
-A personal memory management API that automatically extracts and stores user information from messages using LLM.
-
-## Overview
-
-PersonalMem analyzes user messages and extracts personal information (name, preferences, skills, etc.) storing them in PostgreSQL. Useful for building personalized AI assistants that remember user context across sessions.
+Personal memory management API that extracts and stores user information from messages using LLM. Built for chatbot backends.
 
 ## Tech Stack
 
@@ -36,20 +32,21 @@ Frontend: http://localhost:8888
 
 ## API Endpoints
 
-### For Chatbot Integration
+### Overview
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/messages` | POST | Process message and extract memories |
-| `/users/{user_id}/context/text` | GET | Get formatted context for chatbot prompt |
-| `/users/{user_id}/memories/raw` | GET | Get raw memories as JSON |
-| `/users/{user_id}/memories/batch` | POST | Batch update memories programmatically |
+| Endpoint | Why It's Needed |
+|----------|-----------------|
+| `POST /messages` | Automatically extracts and stores personal information from user messages so your chatbot can remember users across conversations. |
+| `GET /users/{user_id}/context/text` | Provides formatted user context to inject into your chatbot's system prompt for personalized responses. |
+| `GET /users/{user_id}/memories/raw` | Returns structured JSON data for displaying user profiles or integrating with other systems. |
+| `POST /users/{user_id}/memories/batch` | Allows you to set or update user memories directly with structured data, bypassing LLM extraction (instant and free). |
+| `DELETE /users/{user_id}/memories` | Enables users to delete their data for GDPR compliance and privacy. |
 
-### Process Message
-```
-POST /messages
-```
-Extracts personal info from message and stores it.
+---
+
+### 1. POST /messages
+
+**Why:** Automatically extracts and stores personal information from user messages so your chatbot can remember users across conversations.
 
 **Request:**
 ```json
@@ -63,7 +60,6 @@ Extracts personal info from message and stores it.
 ```json
 {
   "success": true,
-  "memory_context": "User Personal Information:\n- name: John\n- likes: Python",
   "extracted_memories": [
     {"field": "name", "value": "John", "event": "ADD"},
     {"field": "likes", "value": ["Python"], "event": "ADD"}
@@ -72,10 +68,11 @@ Extracts personal info from message and stores it.
 }
 ```
 
-### Get Context for Chatbot
-```
-GET /users/{user_id}/context/text
-```
+---
+
+### 2. GET /users/{user_id}/context/text
+
+**Why:** Provides formatted user context to inject into your chatbot's system prompt for personalized responses.
 
 **Response:**
 ```json
@@ -86,10 +83,18 @@ GET /users/{user_id}/context/text
 }
 ```
 
-### Get Raw Memories
+**Usage:**
+```python
+response = requests.get(f"{API_URL}/users/{user_id}/context/text")
+context = response.json()["context"]
+system_prompt = f"You are a helpful assistant.\n\n{context}"
 ```
-GET /users/{user_id}/memories/raw
-```
+
+---
+
+### 3. GET /users/{user_id}/memories/raw
+
+**Why:** Returns structured JSON data for displaying user profiles or integrating with other systems.
 
 **Response:**
 ```json
@@ -98,15 +103,16 @@ GET /users/{user_id}/memories/raw
   "memories": {
     "name": "John",
     "likes": ["Python"],
-    "role": "developer"
+    "age": 28
   }
 }
 ```
 
-### Batch Update Memories
-```
-POST /users/{user_id}/memories/batch
-```
+---
+
+### 4. POST /users/{user_id}/memories/batch
+
+**Why:** Allows you to set or update user memories directly with structured data, bypassing LLM extraction (instant and free).
 
 **Request:**
 ```json
@@ -120,37 +126,69 @@ POST /users/{user_id}/memories/batch
 ```json
 {
   "success": true,
-  "user_id": "user123",
   "updated_fields": ["name", "skills"],
   "total_fields": 5
 }
 ```
 
-### Other Endpoints
+---
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/users/{user_id}/memories` | GET | Get all memories (formatted) |
-| `/users/{user_id}/memories/search` | GET | Search memories |
-| `/users/{user_id}/memories` | DELETE | Delete all memories |
-| `/memories/{memory_id}` | DELETE | Delete specific memory |
-| `/health` | GET | Health check |
+### 5. DELETE /users/{user_id}/memories
+
+**Why:** Enables users to delete their data for GDPR compliance and privacy.
+
+**Response:**
+```json
+{
+  "message": "All memories deleted for user user123"
+}
+```
+
+## Chatbot Integration Example
+
+```python
+import requests
+import openai
+
+MEMORY_API = "http://localhost:8888"
+
+def chat_with_memory(user_id: str, user_message: str):
+    # 1. Extract and store memories
+    requests.post(f"{MEMORY_API}/messages", json={
+        "user_id": user_id,
+        "message": user_message
+    })
+    
+    # 2. Get user context
+    response = requests.get(f"{MEMORY_API}/users/{user_id}/context/text")
+    user_context = response.json()["context"]
+    
+    # 3. Build chatbot prompt with context
+    system_prompt = f"You are a helpful assistant.\n\n{user_context}"
+    
+    # 4. Call your chatbot
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    )
+    
+    return response.choices[0].message.content
+```
 
 ## What Gets Extracted
 
 The system extracts comprehensive personal information:
 
-| Category | Fields |
-|----------|--------|
-| Identity | name, nickname, age, birthday, gender, nationality |
-| Location | location, hometown, timezone |
-| Work | role, company, skills, education, experience_years |
-| Preferences | likes, dislikes, hobbies, interests, favorites |
-| Lifestyle | diet, exercise, work_style |
-| Relationships | family, pets, relationship_status |
-| Languages | languages, native_language, learning_languages |
-| Health | allergies, health_conditions |
-| Personality | personality_traits, values, goals |
+**Identity:** name, age, gender, nationality
+**Work:** role, company, skills, education
+**Preferences:** likes, dislikes, hobbies, interests, favorites
+**Lifestyle:** diet, exercise, work_style
+**Relationships:** family, pets
+**Languages:** spoken, native, learning
+**Other:** habits, goals, personality traits
 
 ## Environment Variables
 
@@ -173,122 +211,14 @@ AZURE_OPENAI_API_VERSION=2025-04-01-preview
 OPENAI_API_KEY=sk-your-key
 ```
 
-## Integration Example
-
-### Basic Integration (Python)
-
-```python
-import requests
-
-API_URL = "http://localhost:8888"
-
-# Store user info from chat message
-response = requests.post(f"{API_URL}/messages", json={
-    "user_id": "user123",
-    "message": "I'm Alice, a frontend developer who loves React"
-})
-result = response.json()
-print(f"Extracted: {result['extracted_memories']}")
-
-# Get memories for chatbot context
-response = requests.get(f"{API_URL}/users/user123/context/text")
-context = response.json()
-print(context["context"])
-# Output:
-# User Information:
-# - name: Alice
-# - role: frontend developer
-# - likes: React
-```
-
-### Chatbot Integration
-
-```python
-import requests
-import openai
-
-MEMORY_API = "http://localhost:8888"
-
-def chat_with_memory(user_id: str, user_message: str):
-    # 1. Extract and store memories from user message
-    requests.post(f"{MEMORY_API}/messages", json={
-        "user_id": user_id,
-        "message": user_message
-    })
-    
-    # 2. Get user context for chatbot
-    response = requests.get(f"{MEMORY_API}/users/{user_id}/context/text")
-    user_context = response.json()["context"]
-    
-    # 3. Build chatbot prompt with context
-    system_prompt = f"""You are a helpful assistant.
-    
-{user_context}
-
-Use this information to personalize your responses."""
-    
-    # 4. Call your chatbot
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
-    )
-    
-    return response.choices[0].message.content
-
-# Usage
-reply = chat_with_memory("user123", "What programming languages do I like?")
-print(reply)  # Will reference React from memory
-```
-
-### Node.js Integration
-
-```javascript
-const axios = require('axios');
-
-const MEMORY_API = 'http://localhost:8888';
-
-async function chatWithMemory(userId, userMessage) {
-    // Store memories
-    await axios.post(`${MEMORY_API}/messages`, {
-        user_id: userId,
-        message: userMessage
-    });
-    
-    // Get context
-    const { data } = await axios.get(`${MEMORY_API}/users/${userId}/context/text`);
-    
-    // Use data.context in your chatbot system prompt
-    return data.context;
-}
-```
-
-### Direct Memory Management
-
-```python
-# Set memories programmatically
-requests.post(f"{API_URL}/users/user123/memories/batch", json={
-    "name": "Alice",
-    "role": "developer",
-    "skills": ["Python", "JavaScript"]
-})
-
-# Get raw memories as JSON
-response = requests.get(f"{API_URL}/users/user123/memories/raw")
-memories = response.json()["memories"]
-# {"name": "Alice", "role": "developer", "skills": ["Python", "JavaScript"]}
-```
-
 ## Troubleshooting
 
 ### Database Connection Issues
 
-The system automatically creates the database and handles connection issues. If problems persist:
+The system automatically creates the database. If problems persist:
 
 ```bash
-# Reset PostgreSQL completely
+# Reset PostgreSQL
 docker compose down
 docker volume rm personalmem_postgres_data
 docker compose up -d postgres
@@ -299,23 +229,15 @@ uvicorn api:app --reload --host 0.0.0.0 --port 8888
 
 ### Common Issues
 
-**"database personalmem does not exist"**
+**"database does not exist"**
 - System auto-creates it on startup
-- If error persists, restart PostgreSQL: `docker compose restart postgres`
+- If error persists: `docker compose restart postgres`
 
 **"password authentication failed"**
-- Check `.env` file has correct credentials
-- Default: user=postgres, password=postgres
+- Check `.env` credentials (default: postgres/postgres)
 
 **"connection refused"**
 ```bash
-docker compose up -d postgres
-```
-
-**Container won't start**
-```bash
-docker compose down
-docker volume rm personalmem_postgres_data
 docker compose up -d postgres
 ```
 

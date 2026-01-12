@@ -10,29 +10,24 @@ load_dotenv()
 
 
 class Config:
-    # PostgreSQL Configuration
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "personalmem")
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
     
-    # Azure OpenAI Configuration (for LLM)
     AZURE_OPENAI_API_KEY: Optional[str] = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_ENDPOINT: Optional[str] = os.getenv("AZURE_OPENAI_ENDPOINT")
     AZURE_OPENAI_DEPLOYMENT: Optional[str] = os.getenv("AZURE_OPENAI_DEPLOYMENT")
     AZURE_OPENAI_MODEL: Optional[str] = os.getenv("AZURE_OPENAI_MODEL")
     AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
     
-    # Regular OpenAI (alternative)
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     
-    # Application Settings
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     
     @classmethod
     def get_log_level(cls) -> int:
-        """Get log level as logging constant"""
         level_map = {
             "DEBUG": logging.DEBUG,
             "INFO": logging.INFO,
@@ -44,7 +39,6 @@ class Config:
     
     @classmethod
     def is_azure_openai(cls) -> bool:
-        """Check if Azure OpenAI is configured"""
         return all([
             cls.AZURE_OPENAI_API_KEY,
             cls.AZURE_OPENAI_ENDPOINT,
@@ -54,8 +48,6 @@ class Config:
     
     @classmethod
     def validate(cls) -> None:
-        """Validate required configuration"""
-        # Check LLM configuration
         if cls.is_azure_openai():
             if not cls.AZURE_OPENAI_API_KEY:
                 raise ValueError("AZURE_OPENAI_API_KEY is required for Azure OpenAI.")
@@ -68,7 +60,6 @@ class Config:
         elif not cls.OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is required if not using Azure OpenAI.")
         
-        # Check PostgreSQL configuration
         if not cls.POSTGRES_HOST:
             raise ValueError("POSTGRES_HOST is required.")
         if not cls.POSTGRES_DB:

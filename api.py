@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
+import time
 
 from app import PersonalMemApp
 from config import config
@@ -34,7 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize PersonalMem app (lazy - will connect to DB on first use)
 try:
     personal_mem_app = PersonalMemApp()
     logger.info("PersonalMemApp initialized successfully")
@@ -42,17 +42,12 @@ except Exception as e:
     logger.warning(f"PersonalMemApp initialization deferred (DB not yet available): {e}")
     personal_mem_app = None
 
-# Mount static files for the frontend
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/", include_in_schema=False)
 async def redirect_to_frontend():
     return RedirectResponse(url="/static/index.html")
 
-
-# ============================================================================
-# Request/Response Models
-# ============================================================================
 
 class SendMessageRequest(BaseModel):
     user_id: str = Field(..., description="User ID")
@@ -67,18 +62,6 @@ class SendMessageResponse(BaseModel):
     response_time_ms: Optional[int] = None
 
 
-class MemoryInfo(BaseModel):
-    id: str
-    memory: str
-    user_id: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-
-
-# ============================================================================
-# Health Check
-# ============================================================================
-
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -89,10 +72,6 @@ async def health_check():
     }
 
 
-# ============================================================================
-# Message Processing
-# ============================================================================
-
 @app.post("/messages", response_model=SendMessageResponse)
 async def send_message(request: SendMessageRequest):
     """
@@ -101,7 +80,6 @@ async def send_message(request: SendMessageRequest):
     Memory extraction is automatic - the LLM analyzes every message to determine
     if it contains long-term personal information (name, preferences, etc).
     """
-    import time
     start_time = time.time()
     
     if personal_mem_app is None:
@@ -135,10 +113,6 @@ async def send_message(request: SendMessageRequest):
             detail=f"Error processing message: {str(e)}"
         )
 
-
-# ============================================================================
-# Memory Management
-# ============================================================================
 
 @app.get("/users/{user_id}/memories/raw")
 async def get_raw_memories(user_id: str):
@@ -262,10 +236,6 @@ async def delete_all_memories(user_id: str):
             detail=f"Error deleting memories: {str(e)}"
         )
 
-
-# ============================================================================
-# Run Server
-# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn

@@ -7,7 +7,6 @@ Auto-creates database and handles connection issues.
 
 import logging
 import json
-import subprocess
 import time
 from typing import Dict, List, Any
 import psycopg2
@@ -29,12 +28,10 @@ class MemoryService:
     """
     
     MAX_RETRIES = 3
-    RETRY_DELAY = 1  # seconds
-    CONNECTION_POOL_SIZE = 5
+    RETRY_DELAY = 1
     
     def __init__(self):
         """Initialize PostgreSQL connection and LLM client"""
-        # Database connection will be lazy - only connect when needed
         self.conn = None
         self._last_connection_attempt = 0
         self._connection_cooldown = 5  # seconds between reconnection attempts
@@ -64,14 +61,11 @@ class MemoryService:
             self.model = "gpt-4o-mini"
         
         logger.info("MemoryService initialized (lazy database connection)")
-        
-        # Auto-ensure database exists on first init
         self._ensure_database_exists()
     
     def _ensure_database_exists(self):
         """Automatically ensure database and table exist"""
         try:
-            # Try to connect to postgres database first
             temp_config = self._db_config.copy()
             temp_config['dbname'] = 'postgres'
             
@@ -79,7 +73,6 @@ class MemoryService:
             conn.autocommit = True
             
             with conn.cursor() as cur:
-                # Check if database exists
                 cur.execute(
                     "SELECT 1 FROM pg_database WHERE datname = %s",
                     (self._db_config['dbname'],)
@@ -97,14 +90,12 @@ class MemoryService:
             
         except Exception as e:
             logger.warning(f"Could not auto-create database: {e}")
-            # Continue anyway - will retry on actual connection
     
     def _is_connection_valid(self) -> bool:
         """Check if the current connection is still valid"""
         if self.conn is None or self.conn.closed:
             return False
         try:
-            # Use a simple query with timeout
             with self.conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 cur.fetchone()
@@ -125,25 +116,21 @@ class MemoryService:
             finally:
                 self.conn = None
     
-    def _get_connection(self, retry_count: int = 0):
+    def _get_connection(self):
         """Get database connection with retry logic and cooldown"""
         import time
         
-        # Check cooldown period
         current_time = time.time()
         if self._last_connection_attempt > 0:
             time_since_last = current_time - self._last_connection_attempt
             if time_since_last < self._connection_cooldown and not self._is_connection_valid():
                 logger.debug(f"Connection cooldown active ({time_since_last:.1f}s / {self._connection_cooldown}s)")
         
-        # Check if existing connection is valid
         if self._is_connection_valid():
             return self.conn
         
-        # Close stale connection if exists
         self._close_connection()
         
-        # Try to establish new connection with retries
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -153,12 +140,10 @@ class MemoryService:
                 self.conn = psycopg2.connect(**self._db_config)
                 self.conn.autocommit = True
                 
-                # Verify connection works
                 with self.conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     cur.fetchone()
                 
-                # Create table if not exists on first connection
                 self._init_database()
                 logger.info("Database connection established successfully")
                 return self.conn
@@ -167,7 +152,6 @@ class MemoryService:
                 last_error = e
                 error_msg = str(e).lower()
                 
-                # Check for specific errors
                 if "does not exist" in error_msg and "database" in error_msg:
                     logger.error(f"Database '{self._db_config['dbname']}' does not exist. Run ./fix_db.sh to create it.")
                 elif "password authentication failed" in error_msg:
@@ -207,7 +191,6 @@ class MemoryService:
                     updated_at TIMESTAMPTZ DEFAULT now()
                 )
             """)
-            # Create index for faster queries
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_memories_gin 
                 ON user_memories USING GIN (memories)
@@ -221,13 +204,11 @@ class MemoryService:
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
-                # Ensure we have a valid connection
                 self._get_connection()
                 return operation(*args, **kwargs)
             except (OperationalError, psycopg2.InterfaceError) as e:
                 last_error = e
                 logger.warning(f"Database operation failed (attempt {attempt + 1}): {e}")
-                # Invalidate connection so it will be recreated
                 self.conn = None
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
@@ -250,11 +231,9 @@ class MemoryService:
             List of extracted memory updates
         """
         try:
-            # Get current memories
             current_memories = self.get_user_memories(user_id)
             logger.debug(f"Current memories for {user_id}: {current_memories}")
             
-            # Extract new information using LLM
             extraction_result = self._extract_structured_memories(message, current_memories)
             logger.debug(f"Extraction result: {extraction_result}")
             
@@ -265,15 +244,12 @@ class MemoryService:
             updates = extraction_result.get("updates", {})
             logger.info(f"Extracted updates: {updates}")
             
-            # Merge updates into current memories
             updated_memories = self._merge_memories(current_memories, updates)
             logger.info(f"Merged memories: {updated_memories}")
             
-            # Save to database
             self._save_memories(user_id, updated_memories)
             logger.info(f"Saved memories to database for user {user_id}")
             
-            # Format response
             changes = extraction_result.get("changes", [])
             logger.info(f"Updated {len(changes)} memory fields for user {user_id}: {[c.get('field') + ' (' + c.get('event') + ')' for c in changes]}")
             
@@ -351,34 +327,28 @@ Extract ALL personal info as JSON:"""
             if not updates:
                 return {"updates": {}, "changes": []}
             
-            # Validate removal format
             for key in updates.keys():
                 if key.startswith("remove_"):
                     if not isinstance(updates[key], list):
                         logger.warning(f"Removal value for {key} is not a list, converting: {updates[key]}")
                         updates[key] = [updates[key]] if updates[key] else []
             
-            # Build list of changes for response
             changes = []
             for key, value in updates.items():
                 if key.startswith("remove_"):
-                    # This is a removal - extract the actual field name
-                    field_name = key[7:]  # Remove "remove_" prefix
+                    field_name = key[7:]
                     changes.append({
                         "field": field_name,
                         "value": value,
                         "event": "REMOVE"
                     })
                 else:
-                    # This is an addition or update
                     event = "UPDATE" if key in current_memories else "ADD"
-                    # Check if it's actually a replacement (for list fields)
                     if isinstance(value, list) and key in current_memories and isinstance(current_memories[key], list):
-                        # Check if items are being added or if it's a complete replacement
                         existing_normalized = {str(v).lower().strip() for v in current_memories[key]}
                         new_normalized = {str(v).lower().strip() for v in value}
                         if not new_normalized.issubset(existing_normalized):
-                            event = "UPDATE"  # Some items are new
+                            event = "UPDATE"
                     changes.append({
                         "field": key,
                         "value": value,
@@ -402,7 +372,7 @@ Extract ALL personal info as JSON:"""
         """
         Merge new updates into current memories with conflict resolution and removals.
         
-        For lists (likes, dislikes, skills, etc): append unique items OR remove items
+        For lists: append unique items OR remove items
         For strings/other: replace
         
         Conflict resolution:
@@ -411,46 +381,36 @@ Extract ALL personal info as JSON:"""
         
         Removals:
         - Keys with "remove_" prefix indicate items to remove from that field
-        - Example: {"remove_skills": ["react.js"]} removes "react.js" from skills list
         """
         merged = current.copy()
         
-        # Define conflicting field pairs
         conflict_pairs = [
             ("likes", "dislikes"),
             ("dislikes", "likes"),
         ]
         
-        # Helper function to normalize items for comparison (case-insensitive)
         def normalize_item(item):
-            """Normalize item for comparison"""
             return str(item).lower().strip()
         
-        # Step 1: Process removals first (before any additions)
         removals_to_process = {}
         normal_updates = {}
         
         for key, value in updates.items():
             if key.startswith("remove_") and isinstance(value, list):
-                # Extract the actual field name (e.g., "remove_skills" -> "skills")
-                field_name = key[7:]  # Remove "remove_" prefix
+                field_name = key[7:]
                 removals_to_process[field_name] = value
             else:
                 normal_updates[key] = value
         
-        # Process removals
         for field_name, items_to_remove in removals_to_process.items():
             logger.info(f"Processing removal: {field_name} -> {items_to_remove}")
             if field_name in merged:
                 if isinstance(merged[field_name], list):
-                    # Handle list field removal
                     original_count = len(merged[field_name])
-                    # Normalize items to remove for comparison
                     items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
                     logger.debug(f"Items to remove (normalized): {items_to_remove_normalized}")
                     logger.debug(f"Current {field_name} before removal: {merged[field_name]}")
                     
-                    # Remove items (case-insensitive comparison)
                     merged[field_name] = [
                         item for item in merged[field_name]
                         if normalize_item(item) not in items_to_remove_normalized
@@ -459,19 +419,15 @@ Extract ALL personal info as JSON:"""
                     removed_count = original_count - len(merged[field_name])
                     logger.info(f"Removed {removed_count} items from {field_name}: {items_to_remove}. Remaining: {merged[field_name]}")
                     
-                    # Clean up empty lists
                     if not merged[field_name]:
                         del merged[field_name]
                         logger.info(f"Deleted empty {field_name} field")
                 else:
-                    # Handle string/non-list field removal
-                    # Check if the current value matches any of the items to remove
                     current_value = merged[field_name]
                     current_value_normalized = normalize_item(current_value)
                     items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
                     
                     if current_value_normalized in items_to_remove_normalized:
-                        # Current value matches - delete the entire field
                         del merged[field_name]
                         logger.info(f"Deleted {field_name} field (value matched: {current_value})")
                     else:
@@ -479,39 +435,28 @@ Extract ALL personal info as JSON:"""
             else:
                 logger.warning(f"Cannot remove from {field_name}: field not found in current memories")
         
-        # Step 2: Resolve conflicts for additions (before merging)
         for key, value in normal_updates.items():
             if isinstance(value, list) and value:
-                # Check for conflicts with this field
                 for field, opposite_field in conflict_pairs:
                     if key == field and opposite_field in merged:
-                        # Remove items from opposite field if they're being added to this field
                         if isinstance(merged[opposite_field], list):
-                            # Normalize new values for comparison
                             new_values_normalized = {normalize_item(v) for v in value}
-                            # Filter out conflicting items (case-insensitive comparison)
                             merged[opposite_field] = [
                                 item for item in merged[opposite_field]
                                 if normalize_item(item) not in new_values_normalized
                             ]
-                            # Clean up empty lists
                             if not merged[opposite_field]:
                                 del merged[opposite_field]
         
-        # Step 3: Merge normal updates (additions)
         for key, value in normal_updates.items():
             if isinstance(value, list):
-                # For lists, merge and deduplicate (case-insensitive)
                 if key in merged and isinstance(merged[key], list):
-                    # Start with existing items
                     existing_normalized = {normalize_item(item) for item in merged[key]}
-                    # Add new items that don't already exist (case-insensitive)
                     for new_item in value:
                         if normalize_item(new_item) not in existing_normalized:
                             merged[key].append(new_item)
                             existing_normalized.add(normalize_item(new_item))
                 else:
-                    # New list, just deduplicate the updates themselves
                     seen_normalized = set()
                     merged[key] = []
                     for item in value:
@@ -520,7 +465,6 @@ Extract ALL personal info as JSON:"""
                             seen_normalized.add(item_normalized)
                             merged[key].append(item)
             else:
-                # For other types, replace
                 merged[key] = value
         
         return merged
@@ -571,59 +515,12 @@ Extract ALL personal info as JSON:"""
             logger.error(f"Error getting memories: {e}")
             return {}
     
-    def get_all_memories(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all memories formatted for API response.
-        
-        Returns:
-            List of memory items with metadata
-        """
-        def _do_get_all():
-            conn = self._get_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT user_id, memories, created_at, updated_at FROM user_memories WHERE user_id = %s",
-                    (user_id,)
-                )
-                result = cur.fetchone()
-                
-                if not result:
-                    return []
-                
-                # Format as list of individual memory items
-                memories_list = []
-                for key, value in result['memories'].items():
-                    if isinstance(value, list):
-                        value_str = ", ".join(str(v) for v in value)
-                    else:
-                        value_str = str(value)
-                    
-                    memories_list.append({
-                        "id": f"{user_id}_{key}",
-                        "memory": f"{key}: {value_str}",
-                        "user_id": user_id,
-                        "created_at": result['created_at'].isoformat() if result['created_at'] else None,
-                        "updated_at": result['updated_at'].isoformat() if result['updated_at'] else None
-                    })
-                
-                logger.info(f"Retrieved {len(memories_list)} memory items for user {user_id}")
-                return memories_list
-        
-        try:
-            return self._execute_with_retry(_do_get_all)
-        except ConnectionError:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting memories: {e}")
-            return []
-    
-    def get_memory_context(self, user_id: str, current_message: str = "") -> str:
+    def get_memory_context(self, user_id: str) -> str:
         """
         Get memory context formatted for AI response generation.
         
         Args:
             user_id: User ID
-            current_message: Current user message (unused, kept for compatibility)
             
         Returns:
             Formatted memory context string
@@ -633,7 +530,6 @@ Extract ALL personal info as JSON:"""
         if not memories:
             return ""
         
-        # Format memories as readable context
         context_parts = ["User Personal Information:"]
         for key, value in memories.items():
             if isinstance(value, list):
@@ -643,62 +539,6 @@ Extract ALL personal info as JSON:"""
             context_parts.append(f"- {key}: {value_str}")
         
         return "\n".join(context_parts)
-    
-    def search_memories(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 5
-    ) -> List[Dict[str, Any]]:
-        """
-        Search memories (returns all for now, no semantic search).
-        
-        Args:
-            user_id: User ID
-            query: Search query (unused)
-            limit: Max results (unused)
-            
-        Returns:
-            List of memory items
-        """
-        return self.get_all_memories(user_id)
-    
-    def delete_memory(self, memory_id: str) -> bool:
-        """
-        Delete a specific memory field.
-        
-        Args:
-            memory_id: Format "user_id_field_name"
-            
-        Returns:
-            True if successful
-        """
-        def _do_delete():
-            parts = memory_id.rsplit("_", 1)
-            if len(parts) != 2:
-                return False
-            
-            user_id, field = parts
-            
-            conn = self._get_connection()
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE user_memories
-                    SET memories = memories - %s,
-                        updated_at = now()
-                    WHERE user_id = %s
-                """, (field, user_id))
-                
-                logger.info(f"Deleted memory field {field} for user {user_id}")
-                return True
-        
-        try:
-            return self._execute_with_retry(_do_delete)
-        except ConnectionError:
-            raise
-        except Exception as e:
-            logger.error(f"Error deleting memory: {e}")
-            return False
     
     def delete_all_memories(self, user_id: str) -> bool:
         """

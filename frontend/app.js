@@ -1,9 +1,7 @@
-// PersonalMem Frontend - Memory Only Version
+// PersonalMem Frontend
 
 const API_URL = 'http://localhost:8888';
 let USER_ID = 'test_user';
-
-// Initialize is now handled at the bottom of the file
 
 function getApiUrl() {
     return document.getElementById('apiUrl').value || API_URL;
@@ -78,13 +76,10 @@ async function sendMessage() {
         
         const data = await response.json();
         
-        // Display response with timing
         displayResponse(message, data, responseTime);
         
-        // Clear input
         messageInput.value = '';
         
-        // Show status with timing
         if (data.extracted_memories && data.extracted_memories.length > 0) {
             const addedCount = data.extracted_memories.filter(m => m.event !== 'REMOVE').length;
             const removedCount = data.extracted_memories.filter(m => m.event === 'REMOVE').length;
@@ -96,7 +91,7 @@ async function sendMessage() {
             statusMsg += ` (${responseTime}ms)`;
             
             showStatus(statusMsg, 'success');
-            loadMemories(); // Refresh memories
+            loadMemories();
         } else {
             showStatus(`Message processed (no personal info) (${responseTime}ms)`, 'success');
         }
@@ -110,7 +105,6 @@ async function sendMessage() {
 function displayResponse(message, data, responseTime) {
     const responseArea = document.getElementById('responseArea');
     
-    // Clear placeholder if it exists
     const placeholder = responseArea.querySelector('.info-text');
     if (placeholder) {
         placeholder.remove();
@@ -166,12 +160,10 @@ function displayResponse(message, data, responseTime) {
     responseDiv.innerHTML = html;
     responseArea.insertBefore(responseDiv, responseArea.firstChild);
     
-    // Keep only last 10 responses
     while (responseArea.children.length > 10) {
         responseArea.removeChild(responseArea.lastChild);
     }
     
-    // Auto-scroll to top
     responseArea.scrollTop = 0;
 }
 
@@ -275,12 +267,10 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Auto-load memories on page load
 document.addEventListener('DOMContentLoaded', async () => {
     USER_ID = document.getElementById('userId').value;
     const userIdInput = document.getElementById('userId');
     
-    // Update USER_ID when input changes
     userIdInput.addEventListener('change', () => {
         USER_ID = userIdInput.value;
         if (USER_ID) {
@@ -288,7 +278,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
     
-    // Test connection and load memories on initialization
     await testConnection();
     if (getUserId()) {
         loadMemories();
