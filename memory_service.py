@@ -2,14 +2,16 @@
 Memory Service - PostgreSQL JSONB Storage
 
 Manages user personal memories using PostgreSQL with JSONB format.
-No vector embeddings - structured key-value storage.
+Auto-creates database and handles connection issues.
 """
 
 import logging
 import json
+import subprocess
+import time
 from typing import Dict, List, Any
 import psycopg2
-from psycopg2 import OperationalError
+from psycopg2 import OperationalError, sql
 from psycopg2.extras import RealDictCursor, Json
 from openai import AzureOpenAI, OpenAI
 
@@ -28,18 +30,25 @@ class MemoryService:
     
     MAX_RETRIES = 3
     RETRY_DELAY = 1  # seconds
+    CONNECTION_POOL_SIZE = 5
     
     def __init__(self):
         """Initialize PostgreSQL connection and LLM client"""
         # Database connection will be lazy - only connect when needed
         self.conn = None
+        self._last_connection_attempt = 0
+        self._connection_cooldown = 5  # seconds between reconnection attempts
         self._db_config = {
             'host': config.POSTGRES_HOST,
             'port': config.POSTGRES_PORT,
             'dbname': config.POSTGRES_DB,
             'user': config.POSTGRES_USER,
             'password': config.POSTGRES_PASSWORD,
-            'connect_timeout': 10
+            'connect_timeout': 10,
+            'keepalives': 1,
+            'keepalives_idle': 30,
+            'keepalives_interval': 10,
+            'keepalives_count': 5
         }
         
         # Initialize LLM client for memory extraction
@@ -55,55 +64,136 @@ class MemoryService:
             self.model = "gpt-4o-mini"
         
         logger.info("MemoryService initialized (lazy database connection)")
+        
+        # Auto-ensure database exists on first init
+        self._ensure_database_exists()
+    
+    def _ensure_database_exists(self):
+        """Automatically ensure database and table exist"""
+        try:
+            # Try to connect to postgres database first
+            temp_config = self._db_config.copy()
+            temp_config['dbname'] = 'postgres'
+            
+            conn = psycopg2.connect(**temp_config)
+            conn.autocommit = True
+            
+            with conn.cursor() as cur:
+                # Check if database exists
+                cur.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s",
+                    (self._db_config['dbname'],)
+                )
+                if not cur.fetchone():
+                    logger.info(f"Creating database '{self._db_config['dbname']}'...")
+                    cur.execute(
+                        sql.SQL("CREATE DATABASE {}").format(
+                            sql.Identifier(self._db_config['dbname'])
+                        )
+                    )
+                    logger.info(f"Database '{self._db_config['dbname']}' created")
+            
+            conn.close()
+            
+        except Exception as e:
+            logger.warning(f"Could not auto-create database: {e}")
+            # Continue anyway - will retry on actual connection
     
     def _is_connection_valid(self) -> bool:
         """Check if the current connection is still valid"""
         if self.conn is None or self.conn.closed:
             return False
         try:
+            # Use a simple query with timeout
             with self.conn.cursor() as cur:
                 cur.execute("SELECT 1")
+                cur.fetchone()
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Connection validation failed: {e}")
             return False
     
+    def _close_connection(self):
+        """Safely close the database connection"""
+        if self.conn is not None:
+            try:
+                if not self.conn.closed:
+                    self.conn.close()
+                    logger.info("Database connection closed")
+            except Exception as e:
+                logger.warning(f"Error closing connection: {e}")
+            finally:
+                self.conn = None
+    
     def _get_connection(self, retry_count: int = 0):
-        """Get database connection with retry logic"""
+        """Get database connection with retry logic and cooldown"""
         import time
+        
+        # Check cooldown period
+        current_time = time.time()
+        if self._last_connection_attempt > 0:
+            time_since_last = current_time - self._last_connection_attempt
+            if time_since_last < self._connection_cooldown and not self._is_connection_valid():
+                logger.debug(f"Connection cooldown active ({time_since_last:.1f}s / {self._connection_cooldown}s)")
         
         # Check if existing connection is valid
         if self._is_connection_valid():
             return self.conn
         
         # Close stale connection if exists
-        if self.conn is not None:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self.conn = None
+        self._close_connection()
         
         # Try to establish new connection with retries
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
+                self._last_connection_attempt = time.time()
                 logger.info(f"Connecting to PostgreSQL (attempt {attempt + 1}/{self.MAX_RETRIES})...")
+                
                 self.conn = psycopg2.connect(**self._db_config)
                 self.conn.autocommit = True
+                
+                # Verify connection works
+                with self.conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.fetchone()
+                
                 # Create table if not exists on first connection
                 self._init_database()
-                logger.info("Database connection established")
+                logger.info("Database connection established successfully")
                 return self.conn
+                
             except OperationalError as e:
                 last_error = e
-                logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
+                error_msg = str(e).lower()
+                
+                # Check for specific errors
+                if "does not exist" in error_msg and "database" in error_msg:
+                    logger.error(f"Database '{self._db_config['dbname']}' does not exist. Run ./fix_db.sh to create it.")
+                elif "password authentication failed" in error_msg:
+                    logger.error(f"Authentication failed. Check POSTGRES_USER and POSTGRES_PASSWORD in .env")
+                elif "could not connect" in error_msg or "connection refused" in error_msg:
+                    logger.error(f"Cannot reach PostgreSQL server. Ensure Docker container is running: docker compose up -d postgres")
+                else:
+                    logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
+                
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(self.RETRY_DELAY)
+            except Exception as e:
+                last_error = e
+                logger.error(f"Unexpected error connecting to database: {e}")
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
         
         logger.error(f"Failed to connect to PostgreSQL after {self.MAX_RETRIES} attempts")
         raise ConnectionError(
             f"Cannot connect to PostgreSQL at {self._db_config['host']}:{self._db_config['port']} "
-            f"after {self.MAX_RETRIES} attempts. Please ensure PostgreSQL is running. Error: {last_error}"
+            f"after {self.MAX_RETRIES} attempts. Last error: {last_error}\n\n"
+            f"Troubleshooting:\n"
+            f"1. Check if PostgreSQL is running: docker ps | grep postgres\n"
+            f"2. If not running: docker compose up -d postgres\n"
+            f"3. If database issues persist: ./fix_db.sh\n"
+            f"4. Check credentials in .env file"
         )
     
     def _init_database(self):
@@ -640,9 +730,4 @@ Extract ALL personal info as JSON:"""
     
     def __del__(self):
         """Close database connection on cleanup"""
-        if hasattr(self, 'conn') and self.conn is not None and not self.conn.closed:
-            try:
-                self.conn.close()
-            except Exception:
-                # Ignore errors during cleanup
-                pass
+        self._close_connection()

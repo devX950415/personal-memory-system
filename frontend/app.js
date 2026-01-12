@@ -187,7 +187,7 @@ async function loadMemories() {
     const startTime = performance.now();
     
     try {
-        const response = await fetch(`${getApiUrl()}/users/${userId}/memories`);
+        const response = await fetch(`${getApiUrl()}/users/${userId}/memories/raw`);
         
         const responseTime = Math.round(performance.now() - startTime);
         
@@ -195,9 +195,10 @@ async function loadMemories() {
             throw new Error(`HTTP ${response.status}`);
         }
         
-        const memories = await response.json();
-        displayMemories(memories);
-        showStatus(`Loaded ${memories.length} memories (${responseTime}ms)`, 'success');
+        const data = await response.json();
+        displayMemories(data.memories);
+        const count = Object.keys(data.memories).length;
+        showStatus(`Loaded ${count} memory fields (${responseTime}ms)`, 'success');
         
     } catch (error) {
         const responseTime = Math.round(performance.now() - startTime);
@@ -209,35 +210,27 @@ function displayMemories(memories) {
     const memoriesList = document.getElementById('memoriesList');
     memoriesList.innerHTML = '';
     
-    if (memories.length === 0) {
+    if (!memories || Object.keys(memories).length === 0) {
         memoriesList.innerHTML = '<div class="info-text">No memories stored yet.<br>Send a message with personal information to create memories.</div>';
         return;
     }
     
-    memories.forEach(mem => {
+    for (const [key, value] of Object.entries(memories)) {
         const memDiv = document.createElement('div');
         memDiv.className = 'memory-item';
-        memDiv.setAttribute('data-memory-id', mem.id || '');
+        
+        let valueStr = value;
+        if (Array.isArray(value)) {
+            valueStr = value.join(', ');
+        }
         
         let html = `<div class="memory-header">
-            <span class="memory-content">${escapeHtml(mem.memory || 'No memory content')}</span>
-            <button onclick="deleteMemory('${escapeHtml(mem.id || '')}')" class="btn-delete" title="Delete this memory">×</button>
+            <span class="memory-content"><strong>${escapeHtml(key)}:</strong> ${escapeHtml(String(valueStr))}</span>
         </div>`;
-        
-        if (mem.created_at || mem.updated_at) {
-            html += '<div class="memory-meta">';
-            if (mem.created_at) {
-                html += `Created: ${new Date(mem.created_at).toLocaleString()}`;
-            }
-            if (mem.updated_at && mem.updated_at !== mem.created_at) {
-                html += ` | Updated: ${new Date(mem.updated_at).toLocaleString()}`;
-            }
-            html += '</div>';
-        }
         
         memDiv.innerHTML = html;
         memoriesList.appendChild(memDiv);
-    });
+    }
 }
 
 async function clearAllMemories() {
@@ -267,36 +260,6 @@ async function clearAllMemories() {
         
     } catch (error) {
         showStatus(`Error deleting memories: ${error.message}`, 'error');
-    }
-}
-
-async function deleteMemory(memoryId) {
-    if (!memoryId) {
-        showStatus('Invalid memory ID', 'error');
-        return;
-    }
-    
-    if (!confirm('Are you sure you want to delete this memory?')) {
-        return;
-    }
-    
-    showStatus('Deleting memory...', 'info');
-    
-    try {
-        const response = await fetch(`${getApiUrl()}/memories/${encodeURIComponent(memoryId)}`, {
-            method: 'DELETE'
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || `HTTP ${response.status}`);
-        }
-        
-        showStatus('Memory deleted', 'success');
-        loadMemories(); // Refresh the list
-        
-    } catch (error) {
-        showStatus(`Error deleting memory: ${error.message}`, 'error');
     }
 }
 

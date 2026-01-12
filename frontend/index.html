@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>PersonalMem</title>
     <link rel="stylesheet" href="/static/styles.css">
     <style>
@@ -248,51 +251,59 @@
                 </details>
             </div>
 
-            <!-- GET /users/{user_id}/memories/search -->
+            <!-- GET /users/{user_id}/context/text -->
             <div class="endpoint">
                 <div class="endpoint-header">
                     <span class="method get">GET</span>
-                    <span class="endpoint-path">/users/{user_id}/memories/search</span>
+                    <span class="endpoint-path">/users/{user_id}/context/text</span>
                 </div>
-                <p class="endpoint-desc">Search user memories by keyword</p>
-                <div class="section-label">Query Parameters</div>
-                <div class="code-block"><span class="prop">query</span>: <span class="str">string</span>  <span class="cmt">// required</span>
-<span class="prop">limit</span>: <span class="kw">number</span>  <span class="cmt">// optional, default: 5</span></div>
-                <details class="try-section">
-                    <summary>Try It</summary>
-                    <div class="try-inputs">
-                        <label>user_id</label>
-                        <input type="text" id="try-search-userid" value="test_user">
-                        <label>query</label>
-                        <input type="text" id="try-search-query" value="Python">
-                        <label>limit (optional)</label>
-                        <input type="number" id="try-search-limit" value="5">
-                    </div>
-                    <button class="try-btn" onclick="trySearch()">Send Request</button>
-                    <div id="try-search-result"></div>
-                </details>
-            </div>
-
-            <!-- GET /users/{user_id}/context -->
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <span class="method get">GET</span>
-                    <span class="endpoint-path">/users/{user_id}/context</span>
-                </div>
-                <p class="endpoint-desc">Get complete context for a user</p>
+                <p class="endpoint-desc">Get formatted context for chatbot prompts</p>
                 <div class="section-label">Response</div>
                 <div class="code-block">{
-  <span class="prop">"user_memories"</span>: [ ... ],
-  <span class="prop">"user_id"</span>: <span class="str">"string"</span>
+  <span class="prop">"user_id"</span>: <span class="str">"string"</span>,
+  <span class="prop">"context"</span>: <span class="str">"User Information:\n- name: John\n- skills: Python"</span>,
+  <span class="prop">"has_memories"</span>: <span class="kw">boolean</span>
 }</div>
                 <details class="try-section">
                     <summary>Try It</summary>
                     <div class="try-inputs">
                         <label>user_id</label>
-                        <input type="text" id="try-context-userid" value="test_user">
+                        <input type="text" id="try-context-text-userid" value="test_user">
                     </div>
-                    <button class="try-btn" onclick="tryGetContext()">Send Request</button>
-                    <div id="try-context-result"></div>
+                    <button class="try-btn" onclick="tryGetContextText()">Send Request</button>
+                    <div id="try-context-text-result"></div>
+                </details>
+            </div>
+
+            <!-- POST /users/{user_id}/memories/batch -->
+            <div class="endpoint">
+                <div class="endpoint-header">
+                    <span class="method post">POST</span>
+                    <span class="endpoint-path">/users/{user_id}/memories/batch</span>
+                </div>
+                <p class="endpoint-desc">Batch update memories programmatically</p>
+                <div class="section-label">Request</div>
+                <div class="code-block">{
+  <span class="prop">"name"</span>: <span class="str">"Alice"</span>,
+  <span class="prop">"skills"</span>: [<span class="str">"Python"</span>, <span class="str">"JavaScript"</span>]
+}</div>
+                <div class="section-label">Response</div>
+                <div class="code-block">{
+  <span class="prop">"success"</span>: <span class="kw">true</span>,
+  <span class="prop">"user_id"</span>: <span class="str">"string"</span>,
+  <span class="prop">"updated_fields"</span>: [<span class="str">"name"</span>, <span class="str">"skills"</span>],
+  <span class="prop">"total_fields"</span>: <span class="kw">5</span>
+}</div>
+                <details class="try-section">
+                    <summary>Try It</summary>
+                    <div class="try-inputs">
+                        <label>user_id</label>
+                        <input type="text" id="try-batch-userid" value="test_user">
+                        <label>memories (JSON)</label>
+                        <textarea id="try-batch-data">{"name": "Alice", "skills": ["Python"]}</textarea>
+                    </div>
+                    <button class="try-btn" onclick="tryBatchUpdate()">Send Request</button>
+                    <div id="try-batch-result"></div>
                 </details>
             </div>
 
@@ -318,28 +329,6 @@
                 </details>
             </div>
 
-            <!-- DELETE /memories/{memory_id} -->
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <span class="method delete">DELETE</span>
-                    <span class="endpoint-path">/memories/{memory_id}</span>
-                </div>
-                <p class="endpoint-desc">Delete a specific memory (memory_id format: {user_id}_{field})</p>
-                <div class="section-label">Response</div>
-                <div class="code-block">{
-  <span class="prop">"message"</span>: <span class="str">"Memory {memory_id} deleted"</span>
-}</div>
-                <details class="try-section">
-                    <summary>Try It</summary>
-                    <div class="try-inputs">
-                        <label>memory_id (e.g., test_user_name)</label>
-                        <input type="text" id="try-delete-one-id" value="test_user_name">
-                    </div>
-                    <button class="try-btn" onclick="tryDeleteOne()">Send Request</button>
-                    <div id="try-delete-one-result"></div>
-                </details>
-            </div>
-
             <!-- GET /health -->
             <div class="endpoint">
                 <div class="endpoint-header">
@@ -360,26 +349,12 @@
                 </details>
             </div>
 
-            <!-- Error Response -->
-            <div class="endpoint">
-                <div class="endpoint-header">
-                    <span class="endpoint-path">Error Response (All Endpoints)</span>
-                </div>
-                <p class="endpoint-desc">HTTP 4xx/5xx responses</p>
-                <div class="section-label">Response</div>
-                <div class="code-block">{
-  <span class="prop">"detail"</span>: <span class="str">"Error message"</span>
-}
-
-<span class="cmt">// Status Codes: 404, 500, 503</span></div>
-            </div>
-
         </div>
 
         <div id="statusBar" class="status-bar"></div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=3"></script>
     <script>
         function showTab(tab) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -428,7 +403,7 @@
 
         async function tryGetMemories() {
             const userId = document.getElementById('try-get-memories-userid').value;
-            const result = await apiCall('GET', `/users/${userId}/memories`);
+            const result = await apiCall('GET', `/users/${userId}/memories/raw`);
             showResult('try-get-memories-result', result);
         }
 
@@ -436,6 +411,24 @@
             const userId = document.getElementById('try-get-raw-userid').value;
             const result = await apiCall('GET', `/users/${userId}/memories/raw`);
             showResult('try-get-raw-result', result);
+        }
+
+        async function tryGetContextText() {
+            const userId = document.getElementById('try-context-text-userid').value;
+            const result = await apiCall('GET', `/users/${userId}/context/text`);
+            showResult('try-context-text-result', result);
+        }
+
+        async function tryBatchUpdate() {
+            const userId = document.getElementById('try-batch-userid').value;
+            const dataStr = document.getElementById('try-batch-data').value;
+            try {
+                const data = JSON.parse(dataStr);
+                const result = await apiCall('POST', `/users/${userId}/memories/batch`, data);
+                showResult('try-batch-result', result);
+            } catch (e) {
+                showResult('try-batch-result', { success: false, data: { detail: 'Invalid JSON: ' + e.message }, time: 0, status: 400 });
+            }
         }
 
         async function trySearch() {
@@ -457,13 +450,6 @@
             const userId = document.getElementById('try-delete-all-userid').value;
             const result = await apiCall('DELETE', `/users/${userId}/memories`);
             showResult('try-delete-all-result', result);
-        }
-
-        async function tryDeleteOne() {
-            if (!confirm('Delete this memory?')) return;
-            const memoryId = document.getElementById('try-delete-one-id').value;
-            const result = await apiCall('DELETE', `/memories/${encodeURIComponent(memoryId)}`);
-            showResult('try-delete-one-result', result);
         }
 
         async function tryHealth() {

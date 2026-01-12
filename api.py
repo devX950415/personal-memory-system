@@ -140,115 +140,6 @@ async def send_message(request: SendMessageRequest):
 # Memory Management
 # ============================================================================
 
-@app.get("/users/{user_id}/memories", response_model=List[MemoryInfo])
-async def get_user_memories(user_id: str):
-    """Get all memories for a user"""
-    if personal_mem_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available. Please ensure PostgreSQL is running."
-        )
-    
-    try:
-        memories = personal_mem_app.get_all_user_memories(user_id)
-        
-        return [
-            MemoryInfo(
-                id=mem.get('id', ''),
-                memory=mem.get('memory', ''),
-                user_id=mem.get('user_id'),
-                created_at=mem.get('created_at'),
-                updated_at=mem.get('updated_at')
-            )
-            for mem in memories
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving memories: {str(e)}"
-        )
-
-
-@app.get("/users/{user_id}/memories/search")
-async def search_memories(user_id: str, query: str, limit: int = 5):
-    """Search user memories with semantic similarity"""
-    try:
-        memories = personal_mem_app.search_user_memories(user_id, query, limit)
-        
-        return [
-            MemoryInfo(
-                id=mem.get('id', ''),
-                memory=mem.get('memory', ''),
-                user_id=mem.get('user_id'),
-                created_at=mem.get('created_at'),
-                updated_at=mem.get('updated_at')
-            )
-            for mem in memories
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error searching memories: {str(e)}"
-        )
-
-
-@app.delete("/users/{user_id}/memories")
-async def delete_all_memories(user_id: str):
-    """Delete all memories for a user"""
-    try:
-        success = personal_mem_app.delete_all_user_memories(user_id)
-        
-        if success:
-            return {"message": f"All memories deleted for user {user_id}"}
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to delete memories"
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting memories: {str(e)}"
-        )
-
-
-@app.delete("/memories/{memory_id}")
-async def delete_memory(memory_id: str):
-    """Delete a specific memory"""
-    try:
-        success = personal_mem_app.delete_user_memory(memory_id)
-        
-        if success:
-            return {"message": f"Memory {memory_id} deleted"}
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Memory not found"
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting memory: {str(e)}"
-        )
-
-
-# ============================================================================
-# Context Retrieval
-# ============================================================================
-
-@app.get("/users/{user_id}/context")
-async def get_user_context(user_id: str):
-    """Get complete context for a user (all memories)"""
-    try:
-        context = personal_mem_app.get_user_context(user_id)
-        return context
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving context: {str(e)}"
-        )
-
-
 @app.get("/users/{user_id}/memories/raw")
 async def get_raw_memories(user_id: str):
     """
@@ -271,6 +162,104 @@ async def get_raw_memories(user_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving memories: {str(e)}"
+        )
+
+
+@app.get("/users/{user_id}/context/text")
+async def get_user_context_text(user_id: str):
+    """
+    Get user context as plain text for chatbot prompts.
+    Returns formatted string ready to inject into system prompt.
+    """
+    if personal_mem_app is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available."
+        )
+    
+    try:
+        memories = personal_mem_app.memory_service.get_user_memories(user_id)
+        
+        if not memories:
+            return {
+                "user_id": user_id,
+                "context": "",
+                "has_memories": False
+            }
+        
+        # Format as readable text for LLM prompt
+        context_lines = ["User Information:"]
+        for key, value in memories.items():
+            if isinstance(value, list):
+                value_str = ", ".join(str(v) for v in value)
+            else:
+                value_str = str(value)
+            context_lines.append(f"- {key}: {value_str}")
+        
+        return {
+            "user_id": user_id,
+            "context": "\n".join(context_lines),
+            "has_memories": True
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving context: {str(e)}"
+        )
+
+
+@app.post("/users/{user_id}/memories/batch")
+async def batch_update_memories(user_id: str, memories: Dict[str, Any]):
+    """
+    Batch update memories directly (for backend integration).
+    Useful when you want to set memories programmatically.
+    """
+    if personal_mem_app is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available."
+        )
+    
+    try:
+        # Get current memories
+        current = personal_mem_app.memory_service.get_user_memories(user_id)
+        
+        # Merge with new memories
+        updated = {**current, **memories}
+        
+        # Save
+        personal_mem_app.memory_service._save_memories(user_id, updated)
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "updated_fields": list(memories.keys()),
+            "total_fields": len(updated)
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating memories: {str(e)}"
+        )
+
+
+@app.delete("/users/{user_id}/memories")
+async def delete_all_memories(user_id: str):
+    """Delete all memories for a user"""
+    try:
+        success = personal_mem_app.delete_all_user_memories(user_id)
+        
+        if success:
+            return {"message": f"All memories deleted for user {user_id}"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete memories"
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting memories: {str(e)}"
         )
 
 
