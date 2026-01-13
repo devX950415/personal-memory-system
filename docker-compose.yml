@@ -31,6 +31,8 @@ services:
       - "log_connections=on"
       - "-c"
       - "log_disconnections=on"
+      - "-c"
+      - "password_encryption=md5"
 
 volumes:
   postgres_data:
