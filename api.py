@@ -85,7 +85,7 @@ async def send_message(request: SendMessageRequest):
     if personal_mem_app is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available. Please ensure PostgreSQL is running."
+            detail="Database connection not available. Please ensure MongoDB is running."
         )
     
     try:
@@ -105,7 +105,7 @@ async def send_message(request: SendMessageRequest):
     except ConnectionError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Cannot connect to PostgreSQL. Please ensure PostgreSQL is running. Error: {str(e)}"
+            detail=f"Cannot connect to MongoDB. Please ensure MongoDB is running. Error: {str(e)}"
         )
     except Exception as e:
         raise HTTPException(

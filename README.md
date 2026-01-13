@@ -5,14 +5,14 @@ Personal memory management API that extracts and stores user information from me
 ## Tech Stack
 
 - **FastAPI** - REST API
-- **PostgreSQL** - Storage (JSONB)
+- **MongoDB** - Storage
 - **Azure OpenAI / OpenAI** - LLM for extraction
 
 ## Quick Start
 
 ```bash
-# 1. Start PostgreSQL
-docker compose up -d postgres
+# 1. Start MongoDB
+docker compose up -d mongodb
 
 # 2. Configure environment
 cp env_example.txt .env
@@ -193,12 +193,9 @@ The system extracts comprehensive personal information:
 ## Environment Variables
 
 ```env
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=personalmem
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
+# MongoDB
+MONGODB_URI=mongodb://admin:admin123@localhost:27017/
+MONGODB_DATABASE=personalmem
 
 # Azure OpenAI (recommended)
 AZURE_OPENAI_API_KEY=your_key
@@ -215,30 +212,29 @@ OPENAI_API_KEY=sk-your-key
 
 ### Database Connection Issues
 
-The system automatically creates the database. If problems persist:
+The system automatically connects to MongoDB. If problems persist:
 
 ```bash
-# Reset PostgreSQL
-docker compose down
-docker volume rm personalmem_postgres_data
-docker compose up -d postgres
+# Reset MongoDB
+docker compose down -v
+docker compose up -d mongodb
 
-# Wait 10 seconds, then restart API
+# Wait 5 seconds, then restart API
 uvicorn api:app --reload --host 0.0.0.0 --port 8888
 ```
 
 ### Common Issues
 
-**"database does not exist"**
-- System auto-creates it on startup
-- If error persists: `docker compose restart postgres`
+**"Cannot connect to MongoDB"**
+- Check if MongoDB is running: `docker ps | grep mongodb`
+- If not running: `docker compose up -d mongodb`
 
-**"password authentication failed"**
-- Check `.env` credentials (default: postgres/postgres)
+**"Authentication failed"**
+- Check `.env` credentials (default: admin/admin123)
 
 **"connection refused"**
 ```bash
-docker compose up -d postgres
+docker compose up -d mongodb
 ```
 
 ## Project Structure
@@ -249,8 +245,7 @@ PersonalMem/
 ├── app.py              # Application logic
 ├── memory_service.py   # Memory extraction & storage
 ├── config.py           # Configuration
-├── docker-compose.yml  # PostgreSQL setup
-├── init_db.sql         # Database schema
+├── docker-compose.yml  # MongoDB setup
 ├── requirements.txt    # Dependencies
 └── frontend/           # Test UI
     ├── index.html

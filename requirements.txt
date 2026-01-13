@@ -1,6 +1,6 @@
 # Core dependencies
 python-dotenv>=1.0.0,<2.0.0
-psycopg2-binary>=2.9.0,<3.0.0  # PostgreSQL adapter
+pymongo>=4.6.0,<5.0.0  # MongoDB driver
 
 # API framework
 fastapi>=0.109.0,<0.110.0

@@ -10,11 +10,8 @@ load_dotenv()
 
 
 class Config:
-    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
-    POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
-    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "personalmem")
-    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
+    MONGODB_URI: str = os.getenv("MONGODB_URI", "mongodb://admin:admin123@localhost:27017/")
+    MONGODB_DATABASE: str = os.getenv("MONGODB_DATABASE", "personalmem")
     
     AZURE_OPENAI_API_KEY: Optional[str] = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_ENDPOINT: Optional[str] = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -60,12 +57,10 @@ class Config:
         elif not cls.OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is required if not using Azure OpenAI.")
         
-        if not cls.POSTGRES_HOST:
-            raise ValueError("POSTGRES_HOST is required.")
-        if not cls.POSTGRES_DB:
-            raise ValueError("POSTGRES_DB is required.")
-        if not cls.POSTGRES_USER:
-            raise ValueError("POSTGRES_USER is required.")
+        if not cls.MONGODB_URI:
+            raise ValueError("MONGODB_URI is required.")
+        if not cls.MONGODB_DATABASE:
+            raise ValueError("MONGODB_DATABASE is required.")
 
 
 config = Config()

@@ -1,7 +1,7 @@
 """
-Memory Service - PostgreSQL JSONB Storage
+Memory Service - MongoDB Storage
 
-Manages user personal memories using PostgreSQL with JSONB format.
+Manages user personal memories using MongoDB.
 Auto-creates database and handles connection issues.
 """
 
@@ -9,9 +9,8 @@ import logging
 import json
 import time
 from typing import Dict, List, Any
-import psycopg2
-from psycopg2 import OperationalError, sql
-from psycopg2.extras import RealDictCursor, Json
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from openai import AzureOpenAI, OpenAI
 
 from config import config
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class MemoryService:
     """
-    Memory service using PostgreSQL JSONB storage.
+    Memory service using MongoDB storage.
     
     Stores memories as structured JSON: {"likes": [...], "dislikes": [...], "role": "...", etc}
     """
@@ -31,22 +30,12 @@ class MemoryService:
     RETRY_DELAY = 1
     
     def __init__(self):
-        """Initialize PostgreSQL connection and LLM client"""
-        self.conn = None
+        """Initialize MongoDB connection and LLM client"""
+        self.client = None
+        self.db = None
+        self.collection = None
         self._last_connection_attempt = 0
         self._connection_cooldown = 5  # seconds between reconnection attempts
-        self._db_config = {
-            'host': config.POSTGRES_HOST,
-            'port': config.POSTGRES_PORT,
-            'dbname': config.POSTGRES_DB,
-            'user': config.POSTGRES_USER,
-            'password': config.POSTGRES_PASSWORD,
-            'connect_timeout': 10,
-            'keepalives': 1,
-            'keepalives_idle': 30,
-            'keepalives_interval': 10,
-            'keepalives_count': 5
-        }
         
         # Initialize LLM client for memory extraction
         if config.is_azure_openai():
@@ -61,44 +50,13 @@ class MemoryService:
             self.model = "gpt-4o-mini"
         
         logger.info("MemoryService initialized (lazy database connection)")
-        self._ensure_database_exists()
-    
-    def _ensure_database_exists(self):
-        """Automatically ensure database and table exist"""
-        try:
-            temp_config = self._db_config.copy()
-            temp_config['dbname'] = 'postgres'
-            
-            conn = psycopg2.connect(**temp_config)
-            conn.autocommit = True
-            
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM pg_database WHERE datname = %s",
-                    (self._db_config['dbname'],)
-                )
-                if not cur.fetchone():
-                    logger.info(f"Creating database '{self._db_config['dbname']}'...")
-                    cur.execute(
-                        sql.SQL("CREATE DATABASE {}").format(
-                            sql.Identifier(self._db_config['dbname'])
-                        )
-                    )
-                    logger.info(f"Database '{self._db_config['dbname']}' created")
-            
-            conn.close()
-            
-        except Exception as e:
-            logger.warning(f"Could not auto-create database: {e}")
     
     def _is_connection_valid(self) -> bool:
         """Check if the current connection is still valid"""
-        if self.conn is None or self.conn.closed:
+        if self.client is None:
             return False
         try:
-            with self.conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
+            self.client.admin.command('ping')
             return True
         except Exception as e:
             logger.warning(f"Connection validation failed: {e}")
@@ -106,20 +64,19 @@ class MemoryService:
     
     def _close_connection(self):
         """Safely close the database connection"""
-        if self.conn is not None:
+        if self.client is not None:
             try:
-                if not self.conn.closed:
-                    self.conn.close()
-                    logger.info("Database connection closed")
+                self.client.close()
+                logger.info("Database connection closed")
             except Exception as e:
                 logger.warning(f"Error closing connection: {e}")
             finally:
-                self.conn = None
+                self.client = None
+                self.db = None
+                self.collection = None
     
     def _get_connection(self):
         """Get database connection with retry logic and cooldown"""
-        import time
-        
         current_time = time.time()
         if self._last_connection_attempt > 0:
             time_since_last = current_time - self._last_connection_attempt
@@ -127,7 +84,7 @@ class MemoryService:
                 logger.debug(f"Connection cooldown active ({time_since_last:.1f}s / {self._connection_cooldown}s)")
         
         if self._is_connection_valid():
-            return self.conn
+            return self.client
         
         self._close_connection()
         
@@ -135,31 +92,30 @@ class MemoryService:
         for attempt in range(self.MAX_RETRIES):
             try:
                 self._last_connection_attempt = time.time()
-                logger.info(f"Connecting to PostgreSQL (attempt {attempt + 1}/{self.MAX_RETRIES})...")
+                logger.info(f"Connecting to MongoDB (attempt {attempt + 1}/{self.MAX_RETRIES})...")
                 
-                self.conn = psycopg2.connect(**self._db_config)
-                self.conn.autocommit = True
+                self.client = MongoClient(
+                    config.MONGODB_URI,
+                    serverSelectionTimeoutMS=5000,
+                    connectTimeoutMS=5000,
+                    socketTimeoutMS=5000
+                )
                 
-                with self.conn.cursor() as cur:
-                    cur.execute("SELECT 1")
-                    cur.fetchone()
+                # Test connection
+                self.client.admin.command('ping')
                 
-                self._init_database()
+                self.db = self.client[config.MONGODB_DATABASE]
+                self.collection = self.db['user_memories']
+                
+                # Create index on user_id
+                self.collection.create_index("user_id", unique=True)
+                
                 logger.info("Database connection established successfully")
-                return self.conn
+                return self.client
                 
-            except OperationalError as e:
+            except (ConnectionFailure, ServerSelectionTimeoutError) as e:
                 last_error = e
-                error_msg = str(e).lower()
-                
-                if "does not exist" in error_msg and "database" in error_msg:
-                    logger.error(f"Database '{self._db_config['dbname']}' does not exist. Run ./fix_db.sh to create it.")
-                elif "password authentication failed" in error_msg:
-                    logger.error(f"Authentication failed. Check POSTGRES_USER and POSTGRES_PASSWORD in .env")
-                elif "could not connect" in error_msg or "connection refused" in error_msg:
-                    logger.error(f"Cannot reach PostgreSQL server. Ensure Docker container is running: docker compose up -d postgres")
-                else:
-                    logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
+                logger.warning(f"Connection attempt {attempt + 1} failed: {e}")
                 
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
@@ -169,52 +125,32 @@ class MemoryService:
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
         
-        logger.error(f"Failed to connect to PostgreSQL after {self.MAX_RETRIES} attempts")
+        logger.error(f"Failed to connect to MongoDB after {self.MAX_RETRIES} attempts")
         raise ConnectionError(
-            f"Cannot connect to PostgreSQL at {self._db_config['host']}:{self._db_config['port']} "
+            f"Cannot connect to MongoDB at {config.MONGODB_URI} "
             f"after {self.MAX_RETRIES} attempts. Last error: {last_error}\n\n"
             f"Troubleshooting:\n"
-            f"1. Check if PostgreSQL is running: docker ps | grep postgres\n"
-            f"2. If not running: docker compose up -d postgres\n"
-            f"3. If database issues persist: ./fix_db.sh\n"
-            f"4. Check credentials in .env file"
+            f"1. Check if MongoDB is running: docker ps | grep mongodb\n"
+            f"2. If not running: docker compose up -d mongodb\n"
+            f"3. Check credentials in .env file"
         )
-    
-    def _init_database(self):
-        """Create memories table if it doesn't exist"""
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS user_memories (
-                    user_id TEXT PRIMARY KEY,
-                    memories JSONB NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT now(),
-                    updated_at TIMESTAMPTZ DEFAULT now()
-                )
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memories_gin 
-                ON user_memories USING GIN (memories)
-            """)
-            logger.info("Database table initialized")
     
     def _execute_with_retry(self, operation, *args, **kwargs):
         """Execute a database operation with automatic reconnection on failure"""
-        import time
-        
         last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
                 self._get_connection()
                 return operation(*args, **kwargs)
-            except (OperationalError, psycopg2.InterfaceError) as e:
+            except (ConnectionFailure, ServerSelectionTimeoutError) as e:
                 last_error = e
                 logger.warning(f"Database operation failed (attempt {attempt + 1}): {e}")
-                self.conn = None
+                self.client = None
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
         
         raise ConnectionError(f"Database operation failed after {self.MAX_RETRIES} attempts: {last_error}")
-    
+
     def add_memory_from_message(
         self,
         user_id: str,
@@ -470,20 +406,25 @@ Extract ALL personal info as JSON:"""
         return merged
     
     def _save_memories(self, user_id: str, memories: Dict[str, Any]):
-        """Save memories to PostgreSQL"""
+        """Save memories to MongoDB"""
         def _do_save():
             logger.debug(f"Saving memories for {user_id}: {memories}")
-            conn = self._get_connection()
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO user_memories (user_id, memories, created_at, updated_at)
-                    VALUES (%s, %s, now(), now())
-                    ON CONFLICT (user_id) 
-                    DO UPDATE SET 
-                        memories = %s,
-                        updated_at = now()
-                """, (user_id, Json(memories), Json(memories)))
-                logger.info(f"Successfully saved memories to database for user {user_id}")
+            self._get_connection()
+            
+            self.collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "memories": memories,
+                        "updated_at": time.time()
+                    },
+                    "$setOnInsert": {
+                        "created_at": time.time()
+                    }
+                },
+                upsert=True
+            )
+            logger.info(f"Successfully saved memories to database for user {user_id}")
         
         self._execute_with_retry(_do_save)
     
@@ -495,17 +436,12 @@ Extract ALL personal info as JSON:"""
             Dictionary of memories (empty dict if no memories)
         """
         def _do_get():
-            conn = self._get_connection()
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT memories FROM user_memories WHERE user_id = %s",
-                    (user_id,)
-                )
-                result = cur.fetchone()
-                
-                if result:
-                    return result['memories']
-                return {}
+            self._get_connection()
+            result = self.collection.find_one({"user_id": user_id})
+            
+            if result and "memories" in result:
+                return result["memories"]
+            return {}
         
         try:
             return self._execute_with_retry(_do_get)
@@ -551,14 +487,10 @@ Extract ALL personal info as JSON:"""
             True if successful
         """
         def _do_delete_all():
-            conn = self._get_connection()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM user_memories WHERE user_id = %s",
-                    (user_id,)
-                )
-                logger.info(f"Deleted all memories for user {user_id}")
-                return True
+            self._get_connection()
+            self.collection.delete_one({"user_id": user_id})
+            logger.info(f"Deleted all memories for user {user_id}")
+            return True
         
         try:
             return self._execute_with_retry(_do_delete_all)
