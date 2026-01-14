@@ -1,21 +1,33 @@
 services:
-  mongodb:
-    image: mongo:7-jammy
-    container_name: personalmem_mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: admin123
-      MONGO_INITDB_DATABASE: personalmem
+  personalmem:
+    build: .
+    image: personalmem:latest
+    container_name: personalmem
     ports:
+      - "8888:8888"
       - "27017:27017"
+    environment:
+      # MongoDB (internal - already configured)
+      MONGODB_URI: mongodb://admin:admin123@localhost:27017/
+      MONGODB_DATABASE: personalmem
+      
+      # Azure OpenAI Configuration (required)
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-gpt-4o-mini}
+      AZURE_OPENAI_MODEL: ${AZURE_OPENAI_MODEL:-gpt-4o-mini}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}
+      
+      # Application Settings
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8888/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
 volumes:

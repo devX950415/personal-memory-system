@@ -207,8 +207,11 @@ class MemoryService:
         - updates: Dict of memory updates
         - changes: List of changes made
         """
-        system_prompt = """Extract ALL personal info from user messages. Return JSON only.
+        system_prompt = """You are a memory extraction system. Analyze user messages and extract personal information updates.
 
+IMPORTANT: When extracting updates, consider CONTEXT and RELATIONSHIPS between fields.
+
+FIELD CATEGORIES:
 IDENTITY: name, nickname, age, birthday, gender, nationality, ethnicity
 LOCATION: location, hometown, timezone, address
 WORK: role, company, industry, experience_years, stack, skills[], certifications[], education, career_goals[]
@@ -221,28 +224,135 @@ PERSONALITY: personality_traits[], values[], life_goals[], fears[], strengths[],
 FINANCE: income_range, financial_goals[]
 OTHER: habits[], routines[], memorable_facts[], achievements[], travel_history[], bucket_list[]
 
-RULES:
-- Extract EVERYTHING personal mentioned
-- Lists use arrays: {"skills": ["Python", "Java"]}
-- Single values use strings: {"name": "John"}
-- Negative statements use "remove_" prefix: {"remove_skills": ["React"]}
-- Create new fields if needed for unique info
-- Skip: temporary states, current tasks, questions without personal info
+CRITICAL UPDATE RULES:
+
+1. CONTEXT-AWARE EXTRACTION:
+   When user mentions a change, extract ALL related information and mark what should be removed.
+   
+   Example 1 - Job Change:
+   Current: {"company": "Google", "role": "Developer", "location": "Mountain View"}
+   Message: "I now work at Microsoft"
+   Extract: {"company": "Microsoft", "clear_work_context": true}
+   → This signals that old work-related fields (role, location) may be outdated
+   
+   Example 2 - Complete Replacement:
+   Current: {"skills": ["Python", "Java", "React"]}
+   Message: "My skills are TypeScript and Go"
+   Extract: {"replace_skills": ["TypeScript", "Go"]}
+   
+   Example 3 - Relationship Change:
+   Current: {"relationship_status": "married", "partner_name": "Sarah"}
+   Message: "I'm single now"
+   Extract: {"relationship_status": "single", "remove_partner_name": true}
+
+2. OPERATION TYPES:
+
+   a) NORMAL UPDATE (default for single values):
+      {"age": 29} - replaces old age
+      {"company": "Microsoft"} - replaces old company
+   
+   b) ADD TO LIST (use when adding to existing):
+      {"skills": ["React"]} - adds React to existing skills
+      {"likes": ["pizza"]} - adds pizza to existing likes
+   
+   c) REPLACE ENTIRE LIST (use "replace_" prefix):
+      {"replace_skills": ["Python", "Java"]} - completely replaces skills list
+      {"replace_hobbies": ["reading"]} - completely replaces hobbies
+   
+   d) REMOVE (use "remove_" prefix):
+      {"remove_skills": ["Java"]} - removes Java from skills
+      {"remove_likes": ["pizza"]} - removes pizza from likes
+      {"remove_partner_name": true} - deletes partner_name field
+   
+   e) CLEAR CONTEXT (use "clear_" prefix for related fields):
+      {"clear_work_context": true} - signals work-related fields may be outdated
+      {"clear_relationship_context": true} - signals relationship fields may be outdated
+
+3. DETECTING INTENT:
+
+   REPLACEMENT signals:
+   - "now", "currently", "these days"
+   - "My X is/are..." (definitive statement)
+   - "I only...", "just..."
+   
+   ADDITION signals:
+   - "also", "additionally", "too", "as well"
+   - "I learned...", "I started..."
+   
+   REMOVAL signals:
+   - "no longer", "not anymore", "don't...anymore"
+   - "forgot", "stopped", "quit"
+   - "I'm single" (when was in relationship)
+
+4. RELATIONSHIP AWARENESS:
+
+   When these fields change, consider related fields:
+   - company changes → role, location might be outdated
+   - relationship_status changes → partner_name, children might need update
+   - location changes → timezone, address might need update
+   - age changes → birthday might need update
 
 EXAMPLES:
-{"name": "John", "age": 28, "birthday": "March 15"}
-{"role": "developer", "company": "Google", "skills": ["Python"], "experience_years": 5}
-{"likes": ["pizza", "hiking"], "dislikes": ["tomatoes"], "hobbies": ["hiking", "reading"]}
-{"pets": ["dog named Max"], "family": ["wife Sarah", "son aged 3"]}
-{"languages": ["English", "Spanish"], "learning_languages": ["Japanese"]}
-{"diet": "vegetarian", "allergies": ["nuts", "shellfish"]}
-{"remove_skills": ["Java"]} (when user says "I forgot Java")
 
-Return {} if no personal info found."""
+Input: "I'm 29 now"
+Current: {"age": 28, "birthday": "March 15"}
+Output: {"age": 29}
 
-        user_prompt = f"""Memories: {json.dumps(current_memories) if current_memories else "{}"}
-Message: "{message}"
-Extract ALL personal info as JSON:"""
+Input: "I work at Microsoft now"
+Current: {"company": "Google", "role": "Developer", "location": "Mountain View"}
+Output: {"company": "Microsoft"}
+Note: Don't remove role/location unless explicitly stated
+
+Input: "I'm a Product Manager at Microsoft"
+Current: {"company": "Google", "role": "Developer"}
+Output: {"company": "Microsoft", "role": "Product Manager"}
+
+Input: "My skills are Python, Java, and TypeScript"
+Current: {"skills": ["React", "Node.js"]}
+Output: {"replace_skills": ["Python", "Java", "TypeScript"]}
+
+Input: "I also know React"
+Current: {"skills": ["Python", "Java"]}
+Output: {"skills": ["React"]}
+
+Input: "I don't like pizza anymore"
+Current: {"likes": ["pizza", "hiking"]}
+Output: {"remove_likes": ["pizza"]}
+
+Input: "I'm single now"
+Current: {"relationship_status": "married", "partner_name": "Sarah"}
+Output: {"relationship_status": "single", "remove_partner_name": true}
+
+Input: "I like tomatoes"
+Current: {"dislikes": ["tomatoes"]}
+Output: {"likes": ["tomatoes"], "remove_dislikes": ["tomatoes"]}
+
+IMPORTANT: 
+- Extract ONLY what's explicitly mentioned or clearly implied
+- Use "replace_" for complete list replacements
+- Use "remove_" for deletions
+- For single values (age, name, company), just provide the new value
+- Return {} if no personal info found
+
+Return valid JSON only."""
+
+        user_prompt = f"""CURRENT MEMORIES:
+{json.dumps(current_memories, indent=2) if current_memories else "{}"}
+
+NEW MESSAGE: "{message}"
+
+TASK: Extract personal information updates from the message. Consider the current memories and determine:
+1. What new information is provided?
+2. What existing information should be replaced?
+3. What existing information should be removed?
+4. Are there any conflicts with existing data?
+
+Return ONLY the updates as JSON. Include:
+- New values for changed fields
+- "replace_" prefix for complete list replacements
+- "remove_" prefix for deletions
+
+JSON OUTPUT:"""
 
         try:
             response = self.llm_client.chat.completions.create(
@@ -263,12 +373,18 @@ Extract ALL personal info as JSON:"""
             if not updates:
                 return {"updates": {}, "changes": []}
             
-            for key in updates.keys():
+            # Validate and normalize removal/replacement operations
+            for key in list(updates.keys()):
                 if key.startswith("remove_"):
-                    if not isinstance(updates[key], list):
-                        logger.warning(f"Removal value for {key} is not a list, converting: {updates[key]}")
+                    if not isinstance(updates[key], list) and updates[key] not in [True, ""]:
+                        logger.warning(f"Removal value for {key} is not a list or boolean, converting: {updates[key]}")
                         updates[key] = [updates[key]] if updates[key] else []
+                elif key.startswith("replace_"):
+                    # Ensure replace operations are properly formatted
+                    if not isinstance(updates[key], (list, str, int, float)):
+                        logger.warning(f"Replace value for {key} has unexpected type: {type(updates[key])}")
             
+            # Track changes for reporting
             changes = []
             for key, value in updates.items():
                 if key.startswith("remove_"):
@@ -277,6 +393,13 @@ Extract ALL personal info as JSON:"""
                         "field": field_name,
                         "value": value,
                         "event": "REMOVE"
+                    })
+                elif key.startswith("replace_"):
+                    field_name = key[8:]
+                    changes.append({
+                        "field": field_name,
+                        "value": value,
+                        "event": "REPLACE"
                     })
                 else:
                     event = "UPDATE" if key in current_memories else "ADD"
@@ -308,15 +431,14 @@ Extract ALL personal info as JSON:"""
         """
         Merge new updates into current memories with conflict resolution and removals.
         
-        For lists: append unique items OR remove items
-        For strings/other: replace
+        Supports three types of operations:
+        1. Normal updates: Add to arrays, replace strings
+        2. Removals: "remove_" prefix removes items
+        3. Replacements: "replace_" prefix completely replaces arrays
         
         Conflict resolution:
         - If item added to "likes", remove it from "dislikes"
         - If item added to "dislikes", remove it from "likes"
-        
-        Removals:
-        - Keys with "remove_" prefix indicate items to remove from that field
         """
         merged = current.copy()
         
@@ -328,24 +450,34 @@ Extract ALL personal info as JSON:"""
         def normalize_item(item):
             return str(item).lower().strip()
         
+        # Separate operations by type
         removals_to_process = {}
+        replacements_to_process = {}
         normal_updates = {}
         
         for key, value in updates.items():
-            if key.startswith("remove_") and isinstance(value, list):
-                field_name = key[7:]
-                removals_to_process[field_name] = value
+            if key.startswith("remove_"):
+                field_name = key[7:]  # Remove "remove_" prefix
+                if isinstance(value, list):
+                    removals_to_process[field_name] = value
+                elif value is True or value == "":
+                    # Handle {"remove_company": true} or {"company": ""}
+                    if field_name in merged:
+                        del merged[field_name]
+                        logger.info(f"Deleted field: {field_name}")
+            elif key.startswith("replace_"):
+                field_name = key[8:]  # Remove "replace_" prefix
+                replacements_to_process[field_name] = value
             else:
                 normal_updates[key] = value
         
+        # Process removals first
         for field_name, items_to_remove in removals_to_process.items():
             logger.info(f"Processing removal: {field_name} -> {items_to_remove}")
             if field_name in merged:
                 if isinstance(merged[field_name], list):
                     original_count = len(merged[field_name])
                     items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
-                    logger.debug(f"Items to remove (normalized): {items_to_remove_normalized}")
-                    logger.debug(f"Current {field_name} before removal: {merged[field_name]}")
                     
                     merged[field_name] = [
                         item for item in merged[field_name]
@@ -353,12 +485,13 @@ Extract ALL personal info as JSON:"""
                     ]
                     
                     removed_count = original_count - len(merged[field_name])
-                    logger.info(f"Removed {removed_count} items from {field_name}: {items_to_remove}. Remaining: {merged[field_name]}")
+                    logger.info(f"Removed {removed_count} items from {field_name}. Remaining: {merged[field_name]}")
                     
                     if not merged[field_name]:
                         del merged[field_name]
                         logger.info(f"Deleted empty {field_name} field")
                 else:
+                    # For non-list fields, check if value matches
                     current_value = merged[field_name]
                     current_value_normalized = normalize_item(current_value)
                     items_to_remove_normalized = {normalize_item(item) for item in items_to_remove}
@@ -366,33 +499,60 @@ Extract ALL personal info as JSON:"""
                     if current_value_normalized in items_to_remove_normalized:
                         del merged[field_name]
                         logger.info(f"Deleted {field_name} field (value matched: {current_value})")
-                    else:
-                        logger.warning(f"Cannot remove from {field_name}: current value '{current_value}' does not match any items to remove: {items_to_remove}")
             else:
-                logger.warning(f"Cannot remove from {field_name}: field not found in current memories")
+                logger.debug(f"Field {field_name} not found for removal")
         
+        # Process replacements (complete overwrites)
+        for field_name, new_value in replacements_to_process.items():
+            logger.info(f"Processing replacement: {field_name} -> {new_value}")
+            if isinstance(new_value, list):
+                # Deduplicate the replacement list
+                seen_normalized = set()
+                merged[field_name] = []
+                for item in new_value:
+                    item_normalized = normalize_item(item)
+                    if item_normalized not in seen_normalized:
+                        seen_normalized.add(item_normalized)
+                        merged[field_name].append(item)
+                logger.info(f"Replaced {field_name} with: {merged[field_name]}")
+            else:
+                merged[field_name] = new_value
+                logger.info(f"Replaced {field_name} with: {new_value}")
+        
+        # Handle conflict resolution for normal updates
         for key, value in normal_updates.items():
             if isinstance(value, list) and value:
                 for field, opposite_field in conflict_pairs:
                     if key == field and opposite_field in merged:
                         if isinstance(merged[opposite_field], list):
                             new_values_normalized = {normalize_item(v) for v in value}
+                            original_count = len(merged[opposite_field])
                             merged[opposite_field] = [
                                 item for item in merged[opposite_field]
                                 if normalize_item(item) not in new_values_normalized
                             ]
+                            if len(merged[opposite_field]) < original_count:
+                                logger.info(f"Removed conflicting items from {opposite_field}")
                             if not merged[opposite_field]:
                                 del merged[opposite_field]
+                                logger.info(f"Deleted empty {opposite_field} field")
         
+        # Process normal updates
         for key, value in normal_updates.items():
             if isinstance(value, list):
                 if key in merged and isinstance(merged[key], list):
+                    # Append unique items to existing list
                     existing_normalized = {normalize_item(item) for item in merged[key]}
+                    added_count = 0
                     for new_item in value:
                         if normalize_item(new_item) not in existing_normalized:
                             merged[key].append(new_item)
                             existing_normalized.add(normalize_item(new_item))
+                            added_count += 1
+                    if added_count > 0:
+                        logger.info(f"Added {added_count} items to {key}: {value}")
                 else:
+                    # Create new list with deduplication
                     seen_normalized = set()
                     merged[key] = []
                     for item in value:
@@ -400,7 +560,13 @@ Extract ALL personal info as JSON:"""
                         if item_normalized not in seen_normalized:
                             seen_normalized.add(item_normalized)
                             merged[key].append(item)
+                    logger.info(f"Created new {key}: {merged[key]}")
             else:
+                # For non-list values, always replace
+                if key in merged and merged[key] != value:
+                    logger.info(f"Replaced {key}: {merged[key]} -> {value}")
+                else:
+                    logger.info(f"Set {key}: {value}")
                 merged[key] = value
         
         return merged
