@@ -1,9 +1,6 @@
-# PostgreSQL Configuration
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=personalmem
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
+# MongoDB Configuration
+MONGODB_URI=mongodb://admin:admin123@localhost:27017/
+MONGODB_DATABASE=personalmem
 
 # ========================================
 # Option 1: Azure OpenAI (Recommended for Enterprise)
@@ -14,12 +11,12 @@ AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
 AZURE_OPENAI_MODEL=gpt-4o-mini
 AZURE_OPENAI_API_VERSION=2025-04-01-preview
 
-# Azure OpenAI Embeddings
-AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-large
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
-AZURE_OPENAI_EMBEDDING_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_EMBEDDING_API_VERSION=2024-12-01-preview
-AZURE_OPENAI_EMBEDDING_API_KEY=your_azure_embedding_api_key
+# Azure OpenAI Embeddings (not used in this system)
+# AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+# AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+# AZURE_OPENAI_EMBEDDING_ENDPOINT=https://your-resource.openai.azure.com/
+# AZURE_OPENAI_EMBEDDING_API_VERSION=2024-12-01-preview
+# AZURE_OPENAI_EMBEDDING_API_KEY=your_azure_embedding_api_key
 
 # ========================================
 # Option 2: Regular OpenAI (Alternative)
