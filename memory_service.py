@@ -213,11 +213,17 @@ IMPORTANT RULES:
 1. Extract EVERYTHING - don't skip any personal information
 2. Use specific field names when possible (favorite_color, not likes)
 3. Extract multiple fields from a single sentence when applicable
+4. Users can have MULTIPLE jobs, roles, companies simultaneously (full-time + part-time, freelance, etc.)
 
 FIELD CATEGORIES (use these exact field names):
 IDENTITY: name, nickname, age, birthday, birth_year, gender, nationality, ethnicity, email, phone
 LOCATION: location, city, country, hometown, timezone, address
-WORK: role, job_title, company, employer, industry, experience_years, salary_range, work_schedule, education, university, degree, graduation_year, career_goals[]
+
+WORK (supports multiple jobs - use jobs[] array for multiple positions):
+- For single job: role, job_title, company, employer, industry, salary_range, work_schedule
+- For multiple jobs: jobs[] array with objects like {"company": "X", "role": "Y", "type": "full-time/part-time/freelance", "salary": "Z"}
+- General work info: experience_years, education, university, degree, graduation_year, career_goals[]
+
 SKILLS: skills[], programming_languages[], tools[], certifications[], expertise[]
 PREFERENCES: likes[], dislikes[], hobbies[], interests[]
 FAVORITES: favorite_color, favorite_food, favorite_foods[], favorite_music, favorite_genre, favorite_movie, favorite_movies[], favorite_book, favorite_books[], favorite_game, favorite_games[], favorite_sport, favorite_sports[], favorite_animal, favorite_place
@@ -228,6 +234,16 @@ HEALTH: allergies[], health_conditions[], blood_type, height, weight
 PERSONALITY: personality_type, personality_traits[], values[], life_goals[], fears[], strengths[], weaknesses[]
 POSSESSIONS: car, vehicle, phone_model, computer
 SOCIAL: social_media[], website, blog
+
+MULTIPLE JOBS EXAMPLES:
+- "I work at Google full-time and do freelance on weekends" → 
+  {"jobs": [{"company": "Google", "type": "full-time"}, {"type": "freelance"}]}
+  
+- "I'm a developer at Microsoft and also teach part-time at university" →
+  {"jobs": [{"company": "Microsoft", "role": "developer", "type": "full-time"}, {"employer": "university", "role": "teacher", "type": "part-time"}]}
+
+- "My full-time salary is 100k and I make 50k from consulting" →
+  {"jobs": [{"type": "full-time", "salary": "100k"}, {"type": "consulting", "salary": "50k"}]}
 OTHER: habits[], routines[], memorable_facts[], achievements[], travel_history[], bucket_list[], fun_facts[]
 
 CRITICAL UPDATE RULES:
