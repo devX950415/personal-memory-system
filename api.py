@@ -220,6 +220,12 @@ async def batch_update_memories(user_id: str, memories: Dict[str, Any]):
 @app.delete("/users/{user_id}/memories")
 async def delete_all_memories(user_id: str):
     """Delete all memories for a user"""
+    if personal_mem_app is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available."
+        )
+    
     try:
         success = personal_mem_app.delete_all_user_memories(user_id)
         

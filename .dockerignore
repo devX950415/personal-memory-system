@@ -2,12 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
 venv/
-env/
-ENV/
-.venv
+.venv/
 
 # Environment
 .env
@@ -15,29 +11,12 @@ ENV/
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
 
 # Git
 .git/
-.gitignore
 
-# Logs
-*.log
+# Tests
+test_*.py
 
-# Database
-*.db
-*.sqlite
-
-# Documentation
-README.md
-SCHEMA.md
-SCHEMA_CONTROL.md
-
-# Docker
-docker-compose.yml
+# Docs
+*.md
