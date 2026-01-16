@@ -207,22 +207,28 @@ class MemoryService:
         - updates: Dict of memory updates
         - changes: List of changes made
         """
-        system_prompt = """You are a memory extraction system. Analyze user messages and extract personal information updates.
+        system_prompt = """You are a memory extraction system. Extract ALL personal information from user messages. Be thorough - extract every piece of personal data mentioned.
 
-IMPORTANT: When extracting updates, consider CONTEXT and RELATIONSHIPS between fields.
+IMPORTANT RULES:
+1. Extract EVERYTHING - don't skip any personal information
+2. Use specific field names when possible (favorite_color, not likes)
+3. Extract multiple fields from a single sentence when applicable
 
-FIELD CATEGORIES:
-IDENTITY: name, nickname, age, birthday, gender, nationality, ethnicity
-LOCATION: location, hometown, timezone, address
-WORK: role, company, industry, experience_years, stack, skills[], certifications[], education, career_goals[]
-PREFERENCES: likes[], dislikes[], hobbies[], interests[], favorite_foods[], favorite_music[], favorite_movies[], favorite_books[], favorite_games[], favorite_sports[]
-LIFESTYLE: diet, exercise, sleep_schedule, work_style, communication_style, morning_person
-RELATIONSHIPS: family[], pets[], relationship_status, partner_name, children[]
+FIELD CATEGORIES (use these exact field names):
+IDENTITY: name, nickname, age, birthday, birth_year, gender, nationality, ethnicity, email, phone
+LOCATION: location, city, country, hometown, timezone, address
+WORK: role, job_title, company, employer, industry, experience_years, salary_range, work_schedule, education, university, degree, graduation_year, career_goals[]
+SKILLS: skills[], programming_languages[], tools[], certifications[], expertise[]
+PREFERENCES: likes[], dislikes[], hobbies[], interests[]
+FAVORITES: favorite_color, favorite_food, favorite_foods[], favorite_music, favorite_genre, favorite_movie, favorite_movies[], favorite_book, favorite_books[], favorite_game, favorite_games[], favorite_sport, favorite_sports[], favorite_animal, favorite_place
+LIFESTYLE: diet, exercise_routine, sleep_schedule, work_style, communication_style, morning_person
+RELATIONSHIPS: family[], pets[], pet_name, relationship_status, partner_name, spouse_name, children[], children_names[]
 LANGUAGES: languages[], native_language, learning_languages[]
-HEALTH: allergies[], health_conditions[], disabilities[]
-PERSONALITY: personality_traits[], values[], life_goals[], fears[], strengths[], weaknesses[]
-FINANCE: income_range, financial_goals[]
-OTHER: habits[], routines[], memorable_facts[], achievements[], travel_history[], bucket_list[]
+HEALTH: allergies[], health_conditions[], blood_type, height, weight
+PERSONALITY: personality_type, personality_traits[], values[], life_goals[], fears[], strengths[], weaknesses[]
+POSSESSIONS: car, vehicle, phone_model, computer
+SOCIAL: social_media[], website, blog
+OTHER: habits[], routines[], memorable_facts[], achievements[], travel_history[], bucket_list[], fun_facts[]
 
 CRITICAL UPDATE RULES:
 
@@ -328,29 +334,45 @@ Current: {"dislikes": ["tomatoes"]}
 Output: {"likes": ["tomatoes"], "remove_dislikes": ["tomatoes"]}
 
 IMPORTANT: 
-- Extract ONLY what's explicitly mentioned or clearly implied
-- Use "replace_" for complete list replacements
-- Use "remove_" for deletions
+- Extract ALL personal information mentioned - be thorough, don't skip anything
+- Use specific field names (favorite_color instead of putting color in likes[])
+- Extract multiple fields from compound sentences
 - For single values (age, name, company), just provide the new value
-- Return {} if no personal info found
+- Return {} ONLY if the message contains absolutely no personal information
+- Extract BOTH explicit AND implied information (e.g., "I work in accounting" implies department=accounting AND possibly role=accountant)
+- USE CURRENT MEMORIES to understand context (e.g., if user said "I work at Google" before and now says "I got promoted", infer company is still Google)
 
 Return valid JSON only."""
 
-        user_prompt = f"""CURRENT MEMORIES:
+        user_prompt = f"""CURRENT USER MEMORIES (use this context to understand the new message):
 {json.dumps(current_memories, indent=2) if current_memories else "{}"}
 
 NEW MESSAGE: "{message}"
 
-TASK: Extract personal information updates from the message. Consider the current memories and determine:
-1. What new information is provided?
-2. What existing information should be replaced?
-3. What existing information should be removed?
-4. Are there any conflicts with existing data?
+TASK: Analyze this message using the user's existing memories as context, then extract updates.
 
-Return ONLY the updates as JSON. Include:
-- New values for changed fields
-- "replace_" prefix for complete list replacements
-- "remove_" prefix for deletions
+CONTEXT-AWARE EXTRACTION RULES:
+1. Use existing memories to understand pronouns and references
+   - If user says "I got a raise" and memories show company=Google, they still work at Google
+   - If user says "my dog is sick" and memories show pet_name=Max, the dog is Max
+   
+2. Detect updates to existing information
+   - "I moved to Seattle" should update location if different from current
+   - "I'm 30 now" should update age
+   - "I switched to TypeScript" may replace or add to programming_languages
+   
+3. Detect removals or changes
+   - "I quit my job" → remove company, role
+   - "I don't like pizza anymore" → remove from likes
+   - "I'm single now" → update relationship_status, remove partner_name
+
+4. Extract new information not in memories
+   - Any personal facts, preferences, skills mentioned
+   
+5. Infer related information
+   - "I use React daily" → skills: React, tools: React, expertise: React
+
+Return ONLY the JSON updates (new values, remove_ prefixes for deletions, replace_ prefixes for full replacements).
 
 JSON OUTPUT:"""
 
