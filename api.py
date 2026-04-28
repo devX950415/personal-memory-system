@@ -1,21 +1,25 @@
 """
-PersonalMem API
+PersonalMem API - Frontend-friendly redesign
 
-REST API for personal memory management.
-No chat history - only user personal memories.
+Five endpoints. Every mutation returns the full updated user state so the
+frontend can `setState(response)` without a refetch.
+
+  GET    /users/{user_id}            -> full user state
+  POST   /users/{user_id}/messages   -> LLM extract + state + extracted_memories
+  PATCH  /users/{user_id}            -> direct mutation + state + changes
+  DELETE /users/{user_id}            -> wipe + empty state
+  GET    /health                     -> liveness
 """
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
 import time
 
-from app import PersonalMemApp
+from memory_service import MemoryService
 from config import config
 
 logging.basicConfig(level=logging.INFO)
@@ -23,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="PersonalMem API",
-    description="Personalized User Memory System - Memory Only",
-    version="2.0.0"
+    description="Personal memory management - frontend-friendly API",
+    version="3.0.0",
 )
 
 app.add_middleware(
@@ -36,221 +40,180 @@ app.add_middleware(
 )
 
 try:
-    personal_mem_app = PersonalMemApp()
-    logger.info("PersonalMemApp initialized successfully")
+    memory_service: Optional[MemoryService] = MemoryService()
+    logger.info("MemoryService initialized successfully")
 except Exception as e:
-    logger.warning(f"PersonalMemApp initialization deferred (DB not yet available): {e}")
-    personal_mem_app = None
+    logger.warning(f"MemoryService initialization deferred (DB not yet available): {e}")
+    memory_service = None
 
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+# ---------- Models ----------
 
-@app.get("/", include_in_schema=False)
-async def redirect_to_frontend():
-    return RedirectResponse(url="/static/index.html")
-
-
-class SendMessageRequest(BaseModel):
-    user_id: str = Field(..., description="User ID")
-    message: str = Field(..., description="User message")
+class MessageRequest(BaseModel):
+    message: str = Field(..., description="User message to extract personal info from")
 
 
-class SendMessageResponse(BaseModel):
-    success: bool
-    memory_context: str
+class PatchRequest(BaseModel):
+    action: str = Field(..., description="set | append | remove | delete | bulk_set")
+    field: Optional[str] = None
+    value: Optional[Any] = None
+    values: Optional[Dict[str, Any]] = None
+
+
+class UserState(BaseModel):
+    user_id: str
+    memories: Dict[str, Any]
+    context_text: str
+    has_memories: bool
+    field_count: int
+    created_at: Optional[float]
+    updated_at: Optional[float]
+
+
+class MessageResponse(UserState):
     extracted_memories: List[Dict[str, Any]]
-    message: str = "Message processed successfully"
-    response_time_ms: Optional[int] = None
+    response_time_ms: int
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
+class PatchResponse(UserState):
+    changes: List[Dict[str, Any]]
+
+
+# ---------- Helpers ----------
+
+VALID_ACTIONS = {"set", "append", "remove", "delete", "bulk_set"}
+
+
+def _require_db():
+    if memory_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection not available. Ensure MongoDB is running.",
+        )
+
+
+def _build_user_state(user_id: str) -> Dict[str, Any]:
+    record = memory_service.get_user_record(user_id)
+    if not record:
+        return {
+            "user_id": user_id,
+            "memories": {},
+            "context_text": "",
+            "has_memories": False,
+            "field_count": 0,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    memories = record.get("memories", {}) or {}
+    if memories:
+        lines = ["User Information:"]
+        for key, val in memories.items():
+            val_str = ", ".join(str(v) for v in val) if isinstance(val, list) else str(val)
+            lines.append(f"- {key}: {val_str}")
+        context_text = "\n".join(lines)
+    else:
+        context_text = ""
+
     return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "service": "PersonalMem API"
+        "user_id": user_id,
+        "memories": memories,
+        "context_text": context_text,
+        "has_memories": bool(memories),
+        "field_count": len(memories),
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
     }
 
 
-@app.post("/messages", response_model=SendMessageResponse)
-async def send_message(request: SendMessageRequest):
-    """
-    Process a user message.
-    
-    Memory extraction is automatic - the LLM analyzes every message to determine
-    if it contains long-term personal information (name, preferences, etc).
-    """
-    start_time = time.time()
-    
-    if personal_mem_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available. Please ensure MongoDB is running."
-        )
-    
+def _validate_patch(req: PatchRequest):
+    if req.action not in VALID_ACTIONS:
+        raise HTTPException(400, f"Unknown action '{req.action}'. Use one of: {sorted(VALID_ACTIONS)}")
+    if req.action in {"set", "append", "remove", "delete"} and not req.field:
+        raise HTTPException(400, f"Action '{req.action}' requires 'field'")
+    if req.action in {"set", "append", "remove"} and req.value is None:
+        raise HTTPException(400, f"Action '{req.action}' requires 'value'")
+    if req.action == "bulk_set" and (not isinstance(req.values, dict) or not req.values):
+        raise HTTPException(400, "Action 'bulk_set' requires non-empty 'values' dict")
+
+
+# ---------- Endpoints ----------
+
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "PersonalMem API",
+    }
+
+
+@app.get("/users/{user_id}", response_model=UserState)
+async def get_user(user_id: str):
+    """Load the full user state - everything the frontend needs in one call."""
+    _require_db()
     try:
-        result = personal_mem_app.process_user_message(
-            user_id=request.user_id,
-            message=request.message
-        )
-        
-        response_time_ms = int((time.time() - start_time) * 1000)
-        
-        return SendMessageResponse(
-            success=True,
-            memory_context=result['memory_context'],
-            extracted_memories=result['extracted_memories'],
-            response_time_ms=response_time_ms
-        )
+        return _build_user_state(user_id)
     except ConnectionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Cannot connect to MongoDB. Please ensure MongoDB is running. Error: {str(e)}"
-        )
+        raise HTTPException(503, f"Database unavailable: {e}")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing message: {str(e)}"
-        )
+        raise HTTPException(500, f"Error loading user: {e}")
 
 
-@app.get("/users/{user_id}/memories/raw")
-async def get_raw_memories(user_id: str):
-    """
-    Get raw memories as JSON object (for backend integration).
-    Returns the memories directly as key-value pairs without formatting.
-    """
-    if personal_mem_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available."
-        )
-    
+@app.post("/users/{user_id}/messages", response_model=MessageResponse)
+async def extract_from_message(user_id: str, request: MessageRequest):
+    """LLM-extract memories from a sentence. Returns updated user state + what was extracted."""
+    _require_db()
+    start = time.time()
     try:
-        memories = personal_mem_app.memory_service.get_user_memories(user_id)
+        extracted = memory_service.add_memory_from_message(user_id, request.message)
+        state = _build_user_state(user_id)
         return {
-            "user_id": user_id,
-            "memories": memories
+            **state,
+            "extracted_memories": extracted,
+            "response_time_ms": int((time.time() - start) * 1000),
         }
+    except ConnectionError as e:
+        raise HTTPException(503, f"Database unavailable: {e}")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving memories: {str(e)}"
-        )
+        raise HTTPException(500, f"Error processing message: {e}")
 
 
-@app.get("/users/{user_id}/context/text")
-async def get_user_context_text(user_id: str):
-    """
-    Get user context as plain text for chatbot prompts.
-    Returns formatted string ready to inject into system prompt.
-    """
-    if personal_mem_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available."
-        )
-    
+@app.patch("/users/{user_id}", response_model=PatchResponse)
+async def patch_user(user_id: str, request: PatchRequest):
+    """Direct mutation via action verb. Returns updated user state + change records."""
+    _require_db()
+    _validate_patch(request)
     try:
-        memories = personal_mem_app.memory_service.get_user_memories(user_id)
-        
-        if not memories:
-            return {
-                "user_id": user_id,
-                "context": "",
-                "has_memories": False
-            }
-        
-        # Format as readable text for LLM prompt
-        context_lines = ["User Information:"]
-        for key, value in memories.items():
-            if isinstance(value, list):
-                value_str = ", ".join(str(v) for v in value)
-            else:
-                value_str = str(value)
-            context_lines.append(f"- {key}: {value_str}")
-        
-        return {
-            "user_id": user_id,
-            "context": "\n".join(context_lines),
-            "has_memories": True
-        }
+        changes = memory_service.apply_action(
+            user_id=user_id,
+            action=request.action,
+            field=request.field,
+            value=request.value,
+            values=request.values,
+        )
+        state = _build_user_state(user_id)
+        return {**state, "changes": changes}
+    except ConnectionError as e:
+        raise HTTPException(503, f"Database unavailable: {e}")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving context: {str(e)}"
-        )
+        raise HTTPException(500, f"Error applying patch: {e}")
 
 
-@app.post("/users/{user_id}/memories/batch")
-async def batch_update_memories(user_id: str, memories: Dict[str, Any]):
-    """
-    Batch update memories directly (for backend integration).
-    Useful when you want to set memories programmatically.
-    """
-    if personal_mem_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available."
-        )
-    
+@app.delete("/users/{user_id}", response_model=UserState)
+async def delete_user(user_id: str):
+    """Wipe the user. Returns the empty post-delete state."""
+    _require_db()
     try:
-        # Get current memories
-        current = personal_mem_app.memory_service.get_user_memories(user_id)
-        
-        # Merge with new memories
-        updated = {**current, **memories}
-        
-        # Save
-        personal_mem_app.memory_service._save_memories(user_id, updated)
-        
-        return {
-            "success": True,
-            "user_id": user_id,
-            "updated_fields": list(memories.keys()),
-            "total_fields": len(updated)
-        }
+        memory_service.delete_all_memories(user_id)
+        return _build_user_state(user_id)
+    except ConnectionError as e:
+        raise HTTPException(503, f"Database unavailable: {e}")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error updating memories: {str(e)}"
-        )
-
-
-@app.delete("/users/{user_id}/memories")
-async def delete_all_memories(user_id: str):
-    """Delete all memories for a user"""
-    if personal_mem_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection not available."
-        )
-    
-    try:
-        success = personal_mem_app.delete_all_user_memories(user_id)
-        
-        if success:
-            return {"message": f"All memories deleted for user {user_id}"}
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to delete memories"
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error deleting memories: {str(e)}"
-        )
+        raise HTTPException(500, f"Error deleting user: {e}")
 
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     config.validate()
-    
-    uvicorn.run(
-        "api:app",
-        host="0.0.0.0",
-        port=8888,
-        reload=True
-    )
+    uvicorn.run("api:app", host="0.0.0.0", port=8888, reload=True)

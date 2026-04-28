@@ -8,7 +8,7 @@ Auto-creates database and handles connection issues.
 import logging
 import json
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from openai import AzureOpenAI, OpenAI
@@ -680,6 +680,77 @@ JSON OUTPUT:"""
         
         return "\n".join(context_parts)
     
+    def get_user_record(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return the full Mongo document (memories + timestamps) or None."""
+        def _do_get():
+            self._get_connection()
+            return self.collection.find_one({"user_id": user_id})
+
+        try:
+            return self._execute_with_retry(_do_get)
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting user record: {e}")
+            return None
+
+    def apply_action(
+        self,
+        user_id: str,
+        action: str,
+        field: Optional[str] = None,
+        value: Any = None,
+        values: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Direct PATCH-style mutation. Bypasses the LLM.
+
+        Actions (validation done at API boundary):
+          set:      replace `field` with `value` (lists overwrite, scalars replace)
+          append:   add `value` (scalar or list) to a list field
+          remove:   remove `value` (scalar or list) from a list field
+          delete:   drop `field` entirely
+          bulk_set: replace each key in `values` dict (lists overwrite)
+
+        Returns a list of {field, value, event} change records.
+        """
+        current = self.get_user_memories(user_id)
+        updates: Dict[str, Any] = {}
+
+        if action == "set":
+            if isinstance(value, list):
+                updates[f"replace_{field}"] = value
+            else:
+                updates[field] = value
+        elif action == "append":
+            items = value if isinstance(value, list) else [value]
+            updates[field] = items
+        elif action == "remove":
+            items = value if isinstance(value, list) else [value]
+            updates[f"remove_{field}"] = items
+        elif action == "delete":
+            updates[f"remove_{field}"] = True
+        elif action == "bulk_set":
+            for k, v in values.items():
+                if isinstance(v, list):
+                    updates[f"replace_{k}"] = v
+                else:
+                    updates[k] = v
+
+        changes = []
+        for key, val in updates.items():
+            if key.startswith("remove_"):
+                changes.append({"field": key[7:], "value": val, "event": "REMOVE"})
+            elif key.startswith("replace_"):
+                changes.append({"field": key[8:], "value": val, "event": "REPLACE"})
+            else:
+                event = "UPDATE" if key in current else "ADD"
+                changes.append({"field": key, "value": val, "event": event})
+
+        merged = self._merge_memories(current, updates)
+        self._save_memories(user_id, merged)
+        return changes
+
     def delete_all_memories(self, user_id: str) -> bool:
         """
         Delete all memories for a user.

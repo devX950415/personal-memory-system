@@ -1,375 +1,306 @@
 # PersonalMem
 
-Personal memory management API that extracts and stores user information from messages using LLM. Built for chatbot backends that need to remember user preferences, context, and personal details across conversations.
+Personal memory management API that extracts and stores user information from messages using an LLM. Built for chatbot backends that need to remember user preferences, context, and personal details across conversations.
+
+**API v3 — frontend-friendly.** Every mutation returns the full updated user state, so a UI can `setState(response)` without a refetch.
 
 ## Features
 
-- **Automatic Memory Extraction** - LLM analyzes messages and extracts personal information
-- **Flexible Schema** - Schema-less MongoDB storage adapts to any user data
-- **Smart Merging** - Intelligently combines new info with existing memories
-- **Fast API** - RESTful endpoints for easy integration
-- **Context Ready** - Formatted output for chatbot prompts
-- **GDPR Compliant** - User data deletion support
+- **Automatic Memory Extraction** — LLM analyzes a sentence and extracts personal information
+- **Direct Edits Without the LLM** — `set` / `append` / `remove` / `delete` / `bulk_set` via a single `PATCH` endpoint
+- **Single-Call Loads** — `GET /users/{id}` returns memories, formatted prompt text, counts, and timestamps in one shot
+- **Smart Merging** — list dedupe, conflict resolution (`likes` ↔ `dislikes`), partial removals
+- **Flexible Schema** — schema-less MongoDB; new fields appear automatically
+- **Chatbot Ready** — every response includes a `context_text` field ready to drop into a system prompt
+- **GDPR Compliant** — hard-delete a user with `DELETE /users/{id}`
 
 ## Tech Stack
 
-- **FastAPI** - REST API framework
-- **MongoDB** - Flexible document storage
-- **Azure OpenAI / OpenAI** - LLM for memory extraction
-- **Docker** - Containerized MongoDB deployment
+- **FastAPI** — REST API framework
+- **MongoDB** — flexible document storage
+- **Azure OpenAI / OpenAI** — LLM for memory extraction
+- **Docker** — containerized deployment
 
 ## Quick Start
 
-### Option 1: Docker (Recommended)
+### Option 1: Docker (recommended)
 
 ```bash
-# 1. Create .env file
-cp env_example.txt .env
-# Edit .env and add your AZURE_OPENAI_API_KEY
+cp env.template .env
+# edit .env and add your AZURE_OPENAI_API_KEY (or OPENAI_API_KEY)
 
-# 2. Build and run
-docker compose up -d
-
-# 3. Access
-# API: http://localhost:8888/docs
-# Frontend: http://localhost:8888
+docker compose up --build -d
 ```
 
-### Option 2: Local Development
+Access:
+- API: <http://localhost:8888/docs>
+- MongoDB: localhost:27017 (admin / admin123)
+
+> Note: `docker-compose.yml` runs the API and MongoDB as **two separate containers** (`personalmem-api` and `personalmem-mongodb`) sharing a Docker network.
+
+### Option 2: Local development
 
 ```bash
-# 1. Start MongoDB
-docker compose up -d
-
-# 2. Configure environment
-cp env_example.txt .env
-# Edit .env with your Azure OpenAI or OpenAI credentials
-
-# 3. Install dependencies
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+docker compose up -d mongodb           # just the database
+cp env.template .env                   # then edit .env
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-# 4. Run API
 uvicorn api:app --reload --host 0.0.0.0 --port 8888
 ```
 
-**Access:**
-- API Documentation: http://localhost:8888/docs
-- Test Frontend: http://localhost:8888
-- MongoDB: localhost:27017 (admin/admin123)
+## API Overview
 
-**Note:** The Docker image includes both the application and MongoDB in a single container. See [DOCKER.md](DOCKER.md) for detailed Docker deployment guide.
+Five endpoints. The full `UserState` shape (returned by all four user endpoints) is:
 
-## API Endpoints
-
-### Overview
-
-| Endpoint | Why It's Needed |
-|----------|-----------------|
-| `POST /messages` | Automatically extracts and stores personal information from user messages so your chatbot can remember users across conversations. |
-| `GET /users/{user_id}/context/text` | Provides formatted user context to inject into your chatbot's system prompt for personalized responses. |
-| `GET /users/{user_id}/memories/raw` | Returns structured JSON data for displaying user profiles or integrating with other systems. |
-| `POST /users/{user_id}/memories/batch` | Allows you to set or update user memories directly with structured data, bypassing LLM extraction (instant and free). |
-| `DELETE /users/{user_id}/memories` | Enables users to delete their data for GDPR compliance and privacy. |
-
----
-
-### 1. POST /messages
-
-**Why:** Automatically extracts and stores personal information from user messages so your chatbot can remember users across conversations.
-
-**Request:**
 ```json
 {
-  "user_id": "user123",
-  "message": "My name is John and I love Python"
+  "user_id": "alice123",
+  "memories": { "name": "Alice", "skills": ["Rust"] },
+  "context_text": "User Information:\n- name: Alice\n- skills: Rust",
+  "has_memories": true,
+  "field_count": 2,
+  "created_at": 1730...,
+  "updated_at": 1730...
 }
 ```
 
-**Response:**
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness check |
+| `GET` | `/users/{user_id}` | Load full user state |
+| `POST` | `/users/{user_id}/messages` | LLM-extract memories from a sentence |
+| `PATCH` | `/users/{user_id}` | Direct mutation via action verb (no LLM) |
+| `DELETE` | `/users/{user_id}` | Wipe the user |
+
+---
+
+### `GET /users/{user_id}`
+
+Load everything the UI needs in one call.
+
+**Response:** `UserState` (see shape above). For a non-existent user, returns the same shape with empty `memories`, `has_memories: false`, and `null` timestamps.
+
+---
+
+### `POST /users/{user_id}/messages`
+
+LLM extracts personal info from a sentence and merges it into the user's memory.
+
+**Request:**
+```json
+{ "message": "My name is John and I love Python" }
+```
+
+**Response:** `UserState` plus:
 ```json
 {
-  "success": true,
   "extracted_memories": [
-    {"field": "name", "value": "John", "event": "ADD"},
-    {"field": "likes", "value": ["Python"], "event": "ADD"}
+    { "field": "name",   "value": "John",       "event": "ADD" },
+    { "field": "likes",  "value": ["Python"],   "event": "ADD" }
   ],
   "response_time_ms": 850
 }
 ```
 
----
-
-### 2. GET /users/{user_id}/context/text
-
-**Why:** Provides formatted user context to inject into your chatbot's system prompt for personalized responses.
-
-**Response:**
-```json
-{
-  "user_id": "user123",
-  "context": "User Information:\n- name: John\n- likes: Python",
-  "has_memories": true
-}
-```
-
-**Usage:**
-```python
-response = requests.get(f"{API_URL}/users/{user_id}/context/text")
-context = response.json()["context"]
-system_prompt = f"You are a helpful assistant.\n\n{context}"
-```
+`event` is one of: `ADD`, `UPDATE`, `REPLACE`, `REMOVE`.
 
 ---
 
-### 3. GET /users/{user_id}/memories/raw
+### `PATCH /users/{user_id}`
 
-**Why:** Returns structured JSON data for displaying user profiles or integrating with other systems.
+Direct mutation via an action verb. Skips the LLM, runs in milliseconds, free.
 
-**Response:**
-```json
-{
-  "user_id": "user123",
-  "memories": {
-    "name": "John",
-    "likes": ["Python"],
-    "age": 28
-  }
-}
-```
+| Action | Body | Effect |
+|---|---|---|
+| `set` | `{action:"set", field:"name", value:"Alice"}` | Replace any field. Lists overwrite, scalars replace. |
+| `append` | `{action:"append", field:"skills", value:"Rust"}` | Add to a list (dedupes). `value` may be a single item or list. Auto-creates the list if missing. |
+| `remove` | `{action:"remove", field:"skills", value:"Python"}` | Remove item(s) from a list. Deletes the field if the list becomes empty. |
+| `delete` | `{action:"delete", field:"age"}` | Drop a whole field. |
+| `bulk_set` | `{action:"bulk_set", values:{"name":"A","age":29}}` | Multi-field set in one call. |
 
----
+**Response:** `UserState` plus a `changes` array describing what was modified.
 
-### 4. POST /users/{user_id}/memories/batch
-
-**Why:** Allows you to set or update user memories directly with structured data, bypassing LLM extraction (instant and free).
-
-**Request:**
-```json
-{
-  "name": "Alice",
-  "skills": ["Python", "JavaScript"]
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "updated_fields": ["name", "skills"],
-  "total_fields": 5
-}
-```
+Validation errors return `400` with a descriptive message.
 
 ---
 
-### 5. DELETE /users/{user_id}/memories
+### `DELETE /users/{user_id}`
 
-**Why:** Enables users to delete their data for GDPR compliance and privacy.
+Hard-deletes the user's document. Returns the empty post-delete `UserState` (200), even if the user didn't exist.
 
-**Response:**
-```json
-{
-  "message": "All memories deleted for user user123"
-}
-```
+---
 
 ## Chatbot Integration Example
 
 ```python
-import requests
-import openai
+import requests, openai
 
-MEMORY_API = "http://localhost:8888"
+API = "http://localhost:8888"
 
 def chat_with_memory(user_id: str, user_message: str):
-    # 1. Extract and store memories
-    requests.post(f"{MEMORY_API}/messages", json={
-        "user_id": user_id,
-        "message": user_message
-    })
-    
-    # 2. Get user context
-    response = requests.get(f"{MEMORY_API}/users/{user_id}/context/text")
-    user_context = response.json()["context"]
-    
-    # 3. Build chatbot prompt with context
-    system_prompt = f"You are a helpful assistant.\n\n{user_context}"
-    
-    # 4. Call your chatbot
-    response = openai.ChatCompletion.create(
+    # 1. Extract & store memories AND get the updated context in one call
+    r = requests.post(f"{API}/users/{user_id}/messages",
+                      json={"message": user_message}).json()
+    system_prompt = f"You are a helpful assistant.\n\n{r['context_text']}"
+
+    # 2. Call your chatbot with the prepared prompt
+    return openai.ChatCompletion.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
+            {"role": "user",   "content": user_message},
         ]
-    )
-    
-    return response.choices[0].message.content
+    ).choices[0].message.content
+```
+
+If you only need to *read* the context (e.g. on every turn without writing):
+
+```python
+ctx = requests.get(f"{API}/users/{user_id}").json()["context_text"]
+```
+
+## Frontend Integration Example
+
+```js
+const Mem = {
+    load:    (uid)               => fetch(`/users/${uid}`).then(r => r.json()),
+    chat:    (uid, message)      => POST(`/users/${uid}/messages`, { message }),
+    set:     (uid, field, value) => PATCH(`/users/${uid}`, { action: 'set',    field, value }),
+    append:  (uid, field, value) => PATCH(`/users/${uid}`, { action: 'append', field, value }),
+    remove:  (uid, field, value) => PATCH(`/users/${uid}`, { action: 'remove', field, value }),
+    delete:  (uid, field)        => PATCH(`/users/${uid}`, { action: 'delete', field }),
+    wipe:    (uid)               => fetch(`/users/${uid}`, { method: 'DELETE' }).then(r => r.json()),
+};
+
+// Every mutation returns the full new UserState — no refetch.
+const state = await Mem.append('alice', 'skills', 'Rust');
+renderUI(state);
 ```
 
 ## What Gets Extracted
 
-The LLM automatically extracts and categorizes personal information:
+The LLM extracts and categorizes personal information across these areas:
 
-| Category | Fields |
-|----------|--------|
-| **Identity** | name, nickname, age, birthday, gender, nationality, ethnicity |
-| **Location** | location, hometown, timezone, address |
-| **Work** | role, company, industry, skills, education, experience_years |
-| **Preferences** | likes, dislikes, hobbies, interests, favorite_foods, favorite_music |
-| **Lifestyle** | diet, exercise, sleep_schedule, work_style, communication_style |
-| **Relationships** | family, pets, relationship_status, partner_name, children |
-| **Languages** | languages, native_language, learning_languages |
-| **Health** | allergies, health_conditions, disabilities |
-| **Personality** | personality_traits, values, life_goals, fears, strengths |
-| **Other** | habits, routines, achievements, travel_history, bucket_list |
+| Category | Example Fields |
+|---|---|
+| Identity | name, nickname, age, birthday, gender, nationality |
+| Location | location, hometown, timezone, address |
+| Work | role, company, jobs[], industry, skills, education |
+| Preferences | likes, dislikes, hobbies, interests, favorite_* |
+| Lifestyle | diet, exercise, sleep_schedule, work_style |
+| Relationships | family, pets, partner_name, children |
+| Languages | languages, native_language, learning_languages |
+| Health | allergies, health_conditions, blood_type |
+| Personality | personality_traits, values, life_goals, fears |
+| Other | habits, achievements, travel_history, bucket_list |
 
-The schema is flexible - new fields are created automatically as needed!
+The schema is flexible — fields are created on demand.
 
 ## Configuration
 
-### Environment Variables
-
-Create a `.env` file with:
+### Environment variables (`.env`)
 
 ```env
-# MongoDB Configuration
+# MongoDB
 MONGODB_URI=mongodb://admin:admin123@localhost:27017/
 MONGODB_DATABASE=personalmem
 
-# Azure OpenAI (Recommended)
+# Azure OpenAI (recommended)
 AZURE_OPENAI_API_KEY=your_azure_key
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
 AZURE_OPENAI_MODEL=gpt-4o-mini
 AZURE_OPENAI_API_VERSION=2025-04-01-preview
 
-# OR Regular OpenAI
-OPENAI_API_KEY=sk-your-openai-key
+# OR plain OpenAI
+# OPENAI_API_KEY=sk-...
 
-# Application Settings
 LOG_LEVEL=INFO
 ```
 
-### MongoDB Connection
+### MongoDB credentials
 
-The default MongoDB credentials are:
-- **Username:** admin
-- **Password:** admin123
-- **Port:** 27017
-- **Database:** personalmem
-
-To change credentials, edit `docker-compose.yml`:
-```yaml
-environment:
-  MONGO_INITDB_ROOT_USERNAME: your_username
-  MONGO_INITDB_ROOT_PASSWORD: your_password
-```
-
-Then update `MONGODB_URI` in `.env` accordingly.
+Defaults: `admin` / `admin123` on port `27017`, database `personalmem`. Override in `docker-compose.yml` and `MONGODB_URI`.
 
 ## Data Schema
 
-PersonalMem uses a **flexible, schema-less design**:
+One document per user in collection `user_memories`:
 
 ```json
 {
   "_id": ObjectId("..."),
-  "user_id": "user123",
+  "user_id": "alice123",
   "memories": {
-    "name": "John Smith",
-    "age": 28,
-    "role": "Developer",
-    "skills": ["Python", "JavaScript"],
-    "likes": ["pizza", "hiking"],
-    "family": ["wife Sarah", "son aged 3"]
-    // ... any other fields
+    "name": "Alice",
+    "age": 29,
+    "skills": ["Rust", "Go"],
+    "likes": ["coffee"]
   },
-  "created_at": 1705176234.567,
-  "updated_at": 1705176890.123
+  "created_at": 1730000000.0,
+  "updated_at": 1730000050.5
 }
 ```
 
-**Key Features:**
-- One document per user
-- No fixed schema - fields added dynamically
-- Arrays for lists, strings for single values
-- Smart merging (arrays append, strings replace)
-- Conflict resolution (likes/dislikes are mutually exclusive)
+Indexed on `user_id` (unique). Lists are appended/deduped; scalars are replaced; `likes` and `dislikes` automatically resolve conflicts.
+
+## Testing
+
+```bash
+# Make sure the API is running, then:
+python test_memory_updates.py
+```
+
+Covers LLM extraction, all five PATCH actions, validation errors, and delete-empty semantics.
 
 ## Troubleshooting
 
-### MongoDB Connection Issues
+### MongoDB connection issues
 
 ```bash
-# Check if MongoDB is running
-docker ps | grep mongodb
-
-# If not running, start it
-docker compose up -d
-
-# Reset MongoDB (clears all data)
-docker compose down -v
-docker compose up -d
+docker ps | grep mongodb            # is it running?
+docker compose up -d mongodb         # start it
+docker compose down -v && docker compose up -d   # nuke + restart
 ```
 
-### Common Issues
+| Issue | Fix |
+|---|---|
+| "Cannot connect to MongoDB" | `docker compose up -d` |
+| "Authentication failed" | check `.env` credentials |
+| "Database connection not available" | wait 5–10s for Mongo to start, retry |
+| Port 27017 in use | stop other Mongo or change port in `docker-compose.yml` |
 
-| Issue | Solution |
-|-------|----------|
-| **"Cannot connect to MongoDB"** | Run `docker compose up -d` |
-| **"Authentication failed"** | Check `.env` credentials (default: admin/admin123) |
-| **"Database connection not available"** | Wait 5-10 seconds for MongoDB to start, then retry |
-| **Port 27017 already in use** | Stop other MongoDB instances or change port in `docker-compose.yml` |
+### `sudo docker compose up` fails with TLS handshake timeout
 
-### Testing MongoDB Connection
+You're likely already in the `docker` group — drop the `sudo`:
 
 ```bash
-# Test from command line
-docker exec -it personalmem_mongodb mongosh \
-  --username admin \
-  --password admin123 \
-  --authenticationDatabase admin
-
-# Inside mongosh:
-use personalmem
-db.user_memories.find()
+docker compose up --build
 ```
 
-### API Not Starting
+`sudo` runs docker as root with a stripped environment, which can break the daemon's auth/registry path on some setups.
+
+### API not starting
 
 ```bash
-# Check Python dependencies
 pip install -r requirements.txt
-
-# Check if port 8888 is available
-lsof -i :8888  # On Linux/Mac
-netstat -ano | findstr :8888  # On Windows
-
-# Run with debug logging
-LOG_LEVEL=DEBUG uvicorn api:app --reload --host 0.0.0.0 --port 8888
+lsof -i :8888                                       # is the port free?
+LOG_LEVEL=DEBUG uvicorn api:app --reload --port 8888
 ```
 
 ## Project Structure
 
 ```
 PersonalMem/
-├── api.py                 # FastAPI REST endpoints
-├── app.py                 # Application logic layer
-├── memory_service.py      # LLM extraction & MongoDB storage
-├── config.py              # Configuration management
-├── docker-compose.yml     # MongoDB container setup
+├── api.py                 # FastAPI app — 5 endpoints
+├── memory_service.py      # LLM extraction, merge logic, MongoDB I/O
+├── config.py              # Env loading + validation
+├── docker-compose.yml     # API + MongoDB containers
+├── Dockerfile             # API image
 ├── requirements.txt       # Python dependencies
-├── .env                   # Environment variables (create from env_example.txt)
-├── env_example.txt        # Environment template
-└── frontend/              # Test UI
-    ├── index.html         # Web interface
-    ├── app.js             # Frontend logic
-    └── styles.css         # Styling
+├── env.template           # Copy to .env and fill in
+└── test_memory_updates.py # Integration tests
 ```
 
 ## License
 
-MIT License - feel free to use in your projects!
+MIT — use freely.

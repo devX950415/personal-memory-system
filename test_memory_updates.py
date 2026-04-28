@@ -1,96 +1,142 @@
 """
-Test script to demonstrate memory update functionality
+Integration tests for the v3 frontend-friendly API.
+
+Run against a live instance:
+    python test_memory_updates.py
 """
 
 import requests
-import json
-import time
 
 API_URL = "http://localhost:8888"
-TEST_USER_ID = "test_user_updates"
+USER = "test_user_updates"
 
-def print_section(title):
-    print("\n" + "="*60)
+
+def section(title):
+    print("\n" + "=" * 60)
     print(f"  {title}")
-    print("="*60)
+    print("=" * 60)
 
-def send_message(message):
-    print(f"\n📨 Sending: '{message}'")
-    response = requests.post(
-        f"{API_URL}/messages",
-        json={"user_id": TEST_USER_ID, "message": message}
-    )
-    result = response.json()
-    
-    if result.get("extracted_memories"):
-        print("✓ Extracted:")
-        for mem in result["extracted_memories"]:
-            print(f"  - {mem['field']}: {mem['value']} ({mem['event']})")
-    else:
-        print("  (No memories extracted)")
-    
-    return result
 
-def get_memories():
-    response = requests.get(f"{API_URL}/users/{TEST_USER_ID}/memories/raw")
-    memories = response.json()["memories"]
-    print("\n💾 Current Memories:")
-    print(json.dumps(memories, indent=2))
-    return memories
+def chat(message):
+    print(f"\n[chat] '{message}'")
+    r = requests.post(f"{API_URL}/users/{USER}/messages", json={"message": message})
+    r.raise_for_status()
+    data = r.json()
+    for m in data.get("extracted_memories", []):
+        print(f"  - {m['field']}: {m['value']} ({m['event']})")
+    return data
 
-def delete_memories():
-    requests.delete(f"{API_URL}/users/{TEST_USER_ID}/memories")
-    print("🗑️  Deleted all memories")
 
-# Test scenarios
-print_section("TEST 1: Initial Data")
-delete_memories()
-send_message("My name is John, I'm 28 years old, and I work at Google")
-send_message("I like pizza, hiking, and coding")
-send_message("My skills are Python, Java, and React")
-get_memories()
+def patch(body):
+    print(f"\n[patch] {body}")
+    r = requests.patch(f"{API_URL}/users/{USER}", json=body)
+    if r.status_code >= 400:
+        print(f"  ERROR {r.status_code}: {r.text}")
+    r.raise_for_status()
+    return r.json()
 
-print_section("TEST 2: Update Age (Replacement)")
-send_message("I'm now 29 years old")
-memories = get_memories()
-assert memories.get("age") == 29, "Age should be updated to 29"
-print("✓ Age correctly updated")
 
-print_section("TEST 3: Update Company (Replacement)")
-send_message("I now work at Microsoft")
-memories = get_memories()
-assert memories.get("company") == "Microsoft", "Company should be updated to Microsoft"
-print("✓ Company correctly updated")
+def load():
+    r = requests.get(f"{API_URL}/users/{USER}")
+    r.raise_for_status()
+    data = r.json()
+    print(f"\n[memories] {data['memories']}")
+    return data["memories"]
 
-print_section("TEST 4: Add to List")
-send_message("I also like swimming")
-memories = get_memories()
-assert "swimming" in [like.lower() for like in memories.get("likes", [])], "Swimming should be added"
-print("✓ Swimming added to likes")
 
-print_section("TEST 5: Remove from List")
-send_message("I don't like pizza anymore")
-memories = get_memories()
-assert "pizza" not in [like.lower() for like in memories.get("likes", [])], "Pizza should be removed"
-print("✓ Pizza removed from likes")
+def wipe():
+    requests.delete(f"{API_URL}/users/{USER}")
+    print("[wipe]")
 
-print_section("TEST 6: Replace Entire List")
-send_message("My skills are now TypeScript, Go, and Rust")
-memories = get_memories()
-skills = [s.lower() for s in memories.get("skills", [])]
-assert "typescript" in skills and "go" in skills and "rust" in skills, "New skills should be present"
-assert "python" not in skills and "java" not in skills and "react" not in skills, "Old skills should be removed"
-print("✓ Skills list completely replaced")
 
-print_section("TEST 7: Conflict Resolution")
-send_message("I like tomatoes")
-send_message("Actually, I dislike tomatoes")
-memories = get_memories()
-likes = [like.lower() for like in memories.get("likes", [])]
-dislikes = [dislike.lower() for dislike in memories.get("dislikes", [])]
-assert "tomatoes" not in likes, "Tomatoes should not be in likes"
-assert "tomatoes" in dislikes, "Tomatoes should be in dislikes"
-print("✓ Conflict resolution working")
+# --- LLM extraction path (unchanged behavior) ---
+section("TEST 1: LLM extraction seeds the user")
+wipe()
+chat("My name is John, I'm 28, and I work at Google")
+chat("I like pizza, hiking, and coding")
+chat("My skills are Python, Java, and React")
+mems = load()
+assert mems.get("name") == "John"
+assert mems.get("age") == 28
 
-print_section("ALL TESTS PASSED! ✓")
-delete_memories()
+section("TEST 2: LLM update — age replacement")
+chat("I'm now 29 years old")
+mems = load()
+assert mems.get("age") == 29
+print("OK")
+
+section("TEST 3: LLM update — company replacement")
+chat("I now work at Microsoft")
+mems = load()
+assert mems.get("company") == "Microsoft"
+print("OK")
+
+# --- New direct PATCH actions ---
+section("TEST 4: PATCH set scalar")
+patch({"action": "set", "field": "favorite_color", "value": "blue"})
+mems = load()
+assert mems.get("favorite_color") == "blue"
+print("OK")
+
+section("TEST 5: PATCH append (single + list)")
+patch({"action": "append", "field": "skills", "value": "Rust"})
+patch({"action": "append", "field": "skills", "value": ["Go", "TypeScript"]})
+mems = load()
+sk = [s.lower() for s in mems.get("skills", [])]
+for need in ("rust", "go", "typescript"):
+    assert need in sk, f"missing {need} in skills={sk}"
+print("OK")
+
+section("TEST 6: PATCH remove (single item)")
+patch({"action": "remove", "field": "skills", "value": "Java"})
+mems = load()
+sk = [s.lower() for s in mems.get("skills", [])]
+assert "java" not in sk
+print("OK")
+
+section("TEST 7: PATCH delete (whole field)")
+patch({"action": "delete", "field": "favorite_color"})
+mems = load()
+assert "favorite_color" not in mems
+print("OK")
+
+section("TEST 8: PATCH set on list overwrites whole list")
+patch({"action": "set", "field": "skills", "value": ["Elixir"]})
+mems = load()
+assert mems.get("skills") == ["Elixir"]
+print("OK")
+
+section("TEST 9: PATCH bulk_set multi-field")
+patch({"action": "bulk_set", "values": {"hometown": "Boston", "age": 30, "languages": ["English", "Spanish"]}})
+mems = load()
+assert mems.get("hometown") == "Boston"
+assert mems.get("age") == 30
+assert mems.get("languages") == ["English", "Spanish"]
+print("OK")
+
+section("TEST 10: LLM conflict resolution still works")
+chat("I like tomatoes")
+chat("Actually, I dislike tomatoes")
+mems = load()
+likes = [v.lower() for v in mems.get("likes", [])]
+dislikes = [v.lower() for v in mems.get("dislikes", [])]
+assert "tomatoes" not in likes
+assert "tomatoes" in dislikes
+print("OK")
+
+section("TEST 11: Validation — bad PATCH body returns 400")
+r = requests.patch(f"{API_URL}/users/{USER}", json={"action": "nonsense"})
+assert r.status_code == 400, r.status_code
+r = requests.patch(f"{API_URL}/users/{USER}", json={"action": "set", "field": "x"})  # missing value
+assert r.status_code == 400, r.status_code
+print("OK")
+
+section("TEST 12: DELETE returns empty state, not 404")
+r = requests.delete(f"{API_URL}/users/{USER}")
+r.raise_for_status()
+data = r.json()
+assert data["has_memories"] is False
+assert data["field_count"] == 0
+print("OK")
+
+section("ALL TESTS PASSED")

@@ -22,7 +22,7 @@ services:
     image: personalmem:latest
     container_name: personalmem-api
     ports:
-      - "8888:8888"
+      - "8003:8003"
     environment:
       MONGODB_URI: mongodb://admin:admin123@mongodb:27017/
       MONGODB_DATABASE: personalmem

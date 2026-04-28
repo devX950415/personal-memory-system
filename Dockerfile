@@ -8,15 +8,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY api.py app.py memory_service.py config.py ./
-COPY frontend/ ./frontend/
+COPY api.py memory_service.py config.py ./
 
 # Expose API port
-EXPOSE 8888
+EXPOSE 8003
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8888/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" || exit 1
 
 # Run the API with 5 workers
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8888", "--workers", "5"]
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2"]
