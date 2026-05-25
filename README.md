@@ -304,3 +304,4 @@ PersonalMem/
 ## License
 
 MIT — use freely.
+By X.
